@@ -17,11 +17,6 @@ export interface IIssuer {
   name: string
   email?: string
   googleId?: string
-  //   facebookId?: string
-  //   twitterId?: string
-  //   telegramId?: string
-  //   discordId?: string
-  //   linkedinId?: string
   walletAddress: WalletSubDocument[]
   stakedAmount: number
   website?: string
