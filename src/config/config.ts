@@ -56,5 +56,6 @@ export const envConfig = {
   defaultUploadService: (process.env.DEFAULT_UPLOAD_SERVICE as 'cloudinary' | 's3') || 'cloudinary',
 
   // Collections
-  dbIssuerCollection: process.env.DB_ISSUER_COLLECTION as string
+  dbIssuerCollection: process.env.DB_ISSUER_COLLECTION as string,
+  dbScoresCollection: process.env.DB_SCORES_COLLECTION as string
 } as const
