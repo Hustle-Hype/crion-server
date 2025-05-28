@@ -57,5 +57,6 @@ export const envConfig = {
 
   // Collections
   dbIssuerCollection: process.env.DB_ISSUER_COLLECTION as string,
-  dbScoresCollection: process.env.DB_SCORES_COLLECTION as string
+  dbScoresCollection: process.env.DB_SCORES_COLLECTION as string,
+  dbScoreHistoriesCollection: process.env.DB_SCORE_HISTORIES_COLLECTION as string
 } as const
