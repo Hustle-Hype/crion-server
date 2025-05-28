@@ -2,6 +2,8 @@
 
 import { Collection, Db, MongoClient } from 'mongodb'
 import { envConfig } from '~/config/config'
+import { IIssuer } from '~/models/schemas/issuer.schema'
+import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 import { IScores } from '~/models/schemas/scores.schema'
 
 // Sử dụng MONGODB_URI từ biến môi trường nếu có
@@ -33,13 +35,16 @@ class DatabaseServices {
     }
   }
 
-  get issuers(): Collection {
-    // TODO: add type IIssuer
+  get issuers(): Collection<IIssuer> {
     return this.db.collection(envConfig.dbIssuerCollection)
   }
 
   get scores(): Collection<IScores> {
     return this.db.collection(envConfig.dbScoresCollection)
+  }
+
+  get scoreHistories(): Collection<IScoreHistory> {
+    return this.db.collection(envConfig.dbScoreHistoriesCollection)
   }
 }
 const databaseServices = new DatabaseServices()
