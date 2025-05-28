@@ -2,6 +2,7 @@
 
 import { Collection, Db, MongoClient } from 'mongodb'
 import { envConfig } from '~/config/config'
+import { IScores } from '~/models/schemas/scores.schema'
 
 // Sử dụng MONGODB_URI từ biến môi trường nếu có
 const uri =
@@ -35,6 +36,10 @@ class DatabaseServices {
   get issuers(): Collection {
     // TODO: add type IIssuer
     return this.db.collection(envConfig.dbIssuerCollection)
+  }
+
+  get scores(): Collection<IScores> {
+    return this.db.collection(envConfig.dbScoresCollection)
   }
 }
 const databaseServices = new DatabaseServices()
