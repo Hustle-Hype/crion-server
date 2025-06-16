@@ -1,4 +1,4 @@
-import { HTTP_STATUS_CODES, REASON_PHRASES } from '~/core/httpStatusCode'
+import { httpStatusCode, reasonPhrases } from '~/core/httpStatusCode'
 
 interface SuccessResponseParams {
   message?: string
@@ -14,8 +14,8 @@ class SuccessResponse {
 
   constructor({
     message,
-    statusCode = HTTP_STATUS_CODES.OK,
-    reasonStatusCode = REASON_PHRASES.OK,
+    statusCode = httpStatusCode.OK,
+    reasonStatusCode = reasonPhrases.OK,
     data
   }: SuccessResponseParams) {
     this.message = message || reasonStatusCode
@@ -48,8 +48,8 @@ class CREATED extends SuccessResponse {
   constructor({ message, data }: CreatedParams) {
     super({
       message,
-      statusCode: HTTP_STATUS_CODES.CREATED,
-      reasonStatusCode: REASON_PHRASES.CREATED,
+      statusCode: httpStatusCode.CREATED,
+      reasonStatusCode: reasonPhrases.CREATED,
       data
     })
   }

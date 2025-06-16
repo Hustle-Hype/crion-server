@@ -1,4 +1,4 @@
-const REASON_PHRASES = {
+const reasonPhrases = {
   /**
    * Official Documentation @ https://tools.ietf.org/html/rfc7231#section-6.3.3
    *
@@ -343,4 +343,4 @@ const REASON_PHRASES = {
   MISDIRECTED_REQUEST: 'Misdirected Request'
 }
 
-export default REASON_PHRASES
+export default reasonPhrases
