@@ -1,4 +1,4 @@
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20'
+import { Strategy as GoogleStrategy, Profile, VerifyCallback } from 'passport-google-oauth20'
 import { envConfig } from '../config'
 import { ProviderType } from '~/constants/enum'
 import { logger } from '~/loggers/my-logger.log'
@@ -13,7 +13,7 @@ export const googleStrategy = new GoogleStrategy(
     scope: ['profile', 'email'],
     passReqToCallback: true
   },
-  async (req, accessToken, refreshToken, profile, done) => {
+  async (req, accessToken, refreshToken, profile: Profile, done: VerifyCallback) => {
     try {
       logger.info(`Google auth attempt for profile ID ${profile.id}`, 'passport.googleStrategy')
 
