@@ -2,14 +2,13 @@
 
 import { Collection, Db, MongoClient } from 'mongodb'
 import { envConfig } from '~/config/config'
+import { IAccount } from '~/models/schemas/account.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
 import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 import { IScores } from '~/models/schemas/scores.schema'
+import { IToken } from '~/models/schemas/token.schema'
 
-// Sử dụng MONGODB_URI từ biến môi trường nếu có
-const uri =
-  envConfig.mongodbUri ||
-  `mongodb+srv://${envConfig.dbUsername}:${envConfig.dbPassword}@resumate.zodlwdf.mongodb.net/${envConfig.dbName}?retryWrites=true&w=majority&appName=${envConfig.appName}`
+const uri = `${envConfig.mongodbUri}`
 
 class DatabaseServices {
   private client: MongoClient
@@ -45,6 +44,14 @@ class DatabaseServices {
 
   get scoreHistories(): Collection<IScoreHistory> {
     return this.db.collection(envConfig.dbScoreHistoriesCollection)
+  }
+
+  get accounts(): Collection<IAccount> {
+    return this.db.collection(envConfig.dbAccountCollection)
+  }
+
+  get tokens(): Collection<IToken> {
+    return this.db.collection(envConfig.dbTokenCollection)
   }
 }
 const databaseServices = new DatabaseServices()
