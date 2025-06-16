@@ -14,6 +14,7 @@ export const envConfig = {
   port: (process.env.PORT as string) || 8000,
   clientUrl: process.env.CLIENT_URL as string,
   mongodbUri: process.env.MONGODB_URI as string,
+  sessionSecret: process.env.SESSION_SECRET as string,
 
   nodeEnv: process.env.NODE_ENV as string,
 
@@ -41,6 +42,13 @@ export const envConfig = {
   googleCallbackURLProd: process.env.GOOGLE_CALLBACK_URL_PROD as string,
   googleRedirectClientUrl: process.env.GOOGLE_REDIRECT_CLIENT_URL as string,
 
+  // x/twitter
+  twitterApiKey: process.env.TWITTER_API_KEY as string,
+  twitterApiSecretKey: process.env.TWITTER_API_SECRET_KEY as string,
+  twitterCallbackURLDev: process.env.TWITTER_CALLBACK_URL_DEV as string,
+  twitterCallbackURLProd: process.env.TWITTER_CALLBACK_URL_PROD as string,
+  xRedirectClientUrl: process.env.X_REDIRECT_CLIENT_URL as string,
+
   // Cloudinary
   cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME as string,
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY as string,
@@ -58,5 +66,7 @@ export const envConfig = {
   // Collections
   dbIssuerCollection: process.env.DB_ISSUER_COLLECTION as string,
   dbScoresCollection: process.env.DB_SCORES_COLLECTION as string,
-  dbScoreHistoriesCollection: process.env.DB_SCORE_HISTORIES_COLLECTION as string
+  dbScoreHistoriesCollection: process.env.DB_SCORE_HISTORIES_COLLECTION as string,
+  dbAccountCollection: process.env.DB_ACCOUNT_COLLECTION as string,
+  dbTokenCollection: process.env.DB_TOKEN_COLLECTION as string
 } as const
