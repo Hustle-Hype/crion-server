@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { validationResult, ValidationChain } from 'express-validator'
-import { EntityError, ErrorWithStatus } from './error.utils'
-import HTTP_STATUS_CODES from '~/core/statusCodes'
-// import { RunnableValidationChains } from 'express-validator/lib/middlewares/schema'
+import { EntityError, ErrorWithStatus } from '~/utils/error.utils'
+import { httpStatusCode } from '~/core/httpStatusCode'
 
 // sequential processing, stops running validations chain if the previous one fails.
 export const validate = (validations: ValidationChain[]) => {
@@ -21,7 +20,7 @@ export const validate = (validations: ValidationChain[]) => {
     const entityError = new EntityError({ errors: {} })
     for (const key in errorObjects) {
       const { msg } = errorObjects[key]
-      if (msg instanceof ErrorWithStatus && msg.status !== HTTP_STATUS_CODES.UNPROCESSABLE_ENTITY) {
+      if (msg instanceof ErrorWithStatus && msg.status !== httpStatusCode.UNPROCESSABLE_ENTITY) {
         return next(msg)
       }
       entityError.errors[key] = errorObjects[key]
