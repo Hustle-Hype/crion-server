@@ -1,6 +1,7 @@
 import { config } from 'dotenv'
 import argv from 'minimist'
 import type { StringValue } from 'ms'
+import { ProviderType } from './enum'
 
 const options = argv(process.argv.slice(2))
 
@@ -15,3 +16,25 @@ export const scoreWeightsConfig = {
   launchHistory: process.env.LAUNCH_HISTORY_WEIGHT as number | StringValue,
   kyc: process.env.KYC_WEIGHT as number | StringValue
 }
+
+type SocialProvider = Extract<
+  ProviderType,
+  ProviderType.GOOGLE | ProviderType.X | ProviderType.LINKEDIN | ProviderType.TELEGRAM
+>
+
+export const SOCIAL_SCORE_WEIGHTS: Record<SocialProvider, number> = {
+  [ProviderType.GOOGLE]: 1,
+  [ProviderType.X]: 1.5,
+  [ProviderType.LINKEDIN]: 2,
+  [ProviderType.TELEGRAM]: 1
+}
+
+export const TIER_THRESHOLDS = {
+  platinum: 90,
+  gold: 80,
+  silver: 70,
+  bronze: 60,
+  new_issuer: 0
+} as const
+
+export type TierType = keyof typeof TIER_THRESHOLDS
