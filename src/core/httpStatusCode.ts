@@ -1,4 +1,4 @@
-import HTTP_STATUS_CODES from '~/core/statusCodes'
-import REASON_PHRASES from '~/core/reasonPhrases'
+import httpStatusCode from '~/core/statusCodes'
+import reasonPhrases from '~/core/reasonPhrases'
 
-export { HTTP_STATUS_CODES, REASON_PHRASES }
+export { httpStatusCode, reasonPhrases }

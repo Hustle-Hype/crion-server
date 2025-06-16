@@ -1,84 +1,92 @@
 import { ObjectId } from 'mongodb'
-
-export interface WalletSubDocument {
-  address: string
-  network: string
-  verifiedAt: Date
-}
+import { BehaviorFlagType, IssuerStatus, KYCStatusType, NetworkType, ProviderType } from '~/constants/enum'
 
 export interface SocialLinkSubDocument {
-  provider: string // X, Fb, Tele, Discord, etc
+  provider: Exclude<ProviderType, ProviderType.WALLET>
   socialId: string
   verifiedAt: Date
 }
 
+export interface WalletLinkSubDocument {
+  network: NetworkType
+  address: string
+  verifiedAt: Date
+}
+
+export interface KYCStatus {
+  status: KYCStatusType
+  provider?: string
+  verifiedAt?: Date
+  expiration?: Date
+  metadata?: Record<string, unknown>
+}
+
+export interface BehaviorFlag {
+  flagType: BehaviorFlagType
+  severity: 1 | 2 | 3 | 4 | 5
+  detectedAt: Date
+  txReference: string
+  details?: string
+}
+
+// Ban info group
+export interface BanInfo {
+  bannedBy: ObjectId
+  bannedAt: Date
+  reason?: string
+  expiredAt?: Date
+}
+
+export interface IssuerMetadata {
+  preferences?: {
+    notifications?: boolean
+    language?: string
+    timezone?: string
+  }
+  customFields?: Record<string, unknown>
+}
+
+// Main IIssuer schema
 export interface IIssuer {
   _id: ObjectId
   name: string
-  email?: string
-  googleId?: string
-  //   facebookId?: string
-  //   twitterId?: string
-  //   telegramId?: string
-  //   discordId?: string
-  //   linkedinId?: string
-  walletAddress: WalletSubDocument[]
+  primaryEmail: string // Main email used for communication
+  avatar?: string
+  isEmailVerified: boolean
+  bio?: string
   stakedAmount: number
   website?: string
   socialLinks: SocialLinkSubDocument[]
-  kycStatus: 'pending' | 'approved' | 'rejected'
+  walletLinks: WalletLinkSubDocument[]
+  kycStatus: KYCStatus
+  behaviorFlags: BehaviorFlag[]
   verifiedAt?: Date
-  status: 'unverified' | 'verified' | 'banned'
-  isBanned?: Date
-  bannedBy?: ObjectId // ref: Admin
-  bannedAt?: Date
-  banReason?: string
+  status: IssuerStatus
+  metadata?: IssuerMetadata
+  banInfo?: BanInfo
   createdAt: Date
   updatedAt: Date
+  lastLoginAt?: Date
 }
 
-type IssuerInitParams =
-  | { type: 'google'; email: string; googleId: string }
-  | { type: 'wallet'; wallet: WalletSubDocument }
+// Helper function to create a new issuer
+export function createIssuer(params: { name: string; primaryEmail: string; avatar?: string }): Omit<IIssuer, '_id'> {
+  const now = new Date()
 
-export function createDefaultIssuerStructure(params: IssuerInitParams): Partial<IIssuer> {
-  if (params.type === 'google') {
-    return {
-      name: '',
-      email: params.email,
-      googleId: params.googleId,
-      walletAddress: [],
-      stakedAmount: 0,
-      website: undefined,
-      socialLinks: [],
-      kycStatus: 'pending',
-      verifiedAt: undefined,
-      status: 'unverified',
-      isBanned: undefined,
-      bannedBy: undefined,
-      bannedAt: undefined,
-      banReason: undefined,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-  } else {
-    return {
-      name: '',
-      email: undefined,
-      googleId: undefined,
-      walletAddress: [params.wallet],
-      stakedAmount: 0,
-      website: undefined,
-      socialLinks: [],
-      kycStatus: 'pending',
-      verifiedAt: undefined,
-      status: 'unverified',
-      isBanned: undefined,
-      bannedBy: undefined,
-      bannedAt: undefined,
-      banReason: undefined,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
+  return {
+    name: params.name,
+    primaryEmail: params.primaryEmail,
+    avatar: params.avatar,
+    isEmailVerified: false,
+    stakedAmount: 0,
+    socialLinks: [],
+    walletLinks: [],
+    kycStatus: {
+      status: KYCStatusType.PENDING
+    },
+    behaviorFlags: [],
+    status: IssuerStatus.ACTIVE,
+    createdAt: now,
+    updatedAt: now
   }
 }

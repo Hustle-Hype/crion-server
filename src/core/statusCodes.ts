@@ -1,4 +1,4 @@
-const HTTP_STATUS_CODES = {
+const httpStatusCode = {
   /**
    * Official Documentation @ https://tools.ietf.org/html/rfc7231#section-6.2.1
    *
@@ -345,4 +345,4 @@ const HTTP_STATUS_CODES = {
   UNKNOW_ERROR: 520
 }
 
-export default HTTP_STATUS_CODES
+export default httpStatusCode
