@@ -1,19 +1,11 @@
 import { ObjectId } from 'mongodb'
-import databaseServices from './database.service'
+import databaseServices from '~/services/database.services'
 import { IScores } from '~/models/schemas/scores.schema'
 import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 import { BehaviorFlag, IIssuer, KYCStatus, SocialLinkSubDocument } from '~/models/schemas/issuer.schema'
-import { scoreWeightsConfig } from '~/constants/scores'
+import { scoreWeightsConfig, SOCIAL_SCORE_WEIGHTS, TIER_THRESHOLDS, TierType } from '~/constants/scores'
+import { httpStatusCode } from '~/core/httpStatusCode'
 import { ErrorWithStatus } from '~/utils/error.utils'
-import HTTP_STATUS_CODES from '~/core/statusCodes'
-
-const TIER_THRESHOLDS = {
-  platinum: 90,
-  gold: 80,
-  silver: 70,
-  bronze: 60,
-  new_issuer: 0
-} as const
 
 interface ScoreValue {
   score: number
@@ -28,10 +20,10 @@ const getScoreValue = (result: ScoreResult): number => {
 }
 
 class ScoresService {
-  private calculateTier(totalScore: number): IScores['tier'] {
+  private calculateTier(totalScore: number): TierType {
     for (const [tier, threshold] of Object.entries(TIER_THRESHOLDS)) {
       if (totalScore >= threshold) {
-        return tier as IScores['tier']
+        return tier as TierType
       }
     }
     return 'new_issuer'
@@ -98,8 +90,14 @@ class ScoresService {
   private calculateSocialScore(socialLinks: SocialLinkSubDocument[]): number {
     if (!socialLinks.length) return 0
 
-    // Base points per verified social account
-    const basePoints = Math.min(socialLinks.length * 5, Number(scoreWeightsConfig.social))
+    // Calculate total weight from verified social accounts
+    const totalWeight = socialLinks.reduce((sum, link) => {
+      const weight = SOCIAL_SCORE_WEIGHTS[link.provider] || 0
+      return sum + weight
+    }, 0)
+
+    // Base points from weights
+    const basePoints = Math.min(totalWeight * 5, Number(scoreWeightsConfig.social))
 
     // Bonus points for account age
     const now = new Date()
@@ -107,8 +105,8 @@ class ScoresService {
 
     socialLinks.forEach((link) => {
       const accountAge = (now.getTime() - link.verifiedAt.getTime()) / (1000 * 60 * 60 * 24)
-      if (accountAge > 180) ageBonus += 1 // 6 months
-      if (accountAge > 365) ageBonus += 1 // 1 year
+      if (accountAge > 180) ageBonus += 0.5 // 6 months
+      if (accountAge > 365) ageBonus += 0.5 // 1 year
     })
 
     return Math.min(basePoints + ageBonus, Number(scoreWeightsConfig.social))
@@ -185,7 +183,7 @@ class ScoresService {
       if (!issuer) {
         throw new ErrorWithStatus({
           message: 'Issuer not found',
-          status: HTTP_STATUS_CODES.NOT_FOUND
+          status: httpStatusCode.NOT_FOUND
         })
       }
 
@@ -204,10 +202,7 @@ class ScoresService {
       scores.launchHistory = launchScore
 
       // Calculate total score
-      const totalScore = Object.entries(scores).reduce(
-        (sum, [, value]) => sum + (value as { score: number }).score,
-        0
-      ) as number
+      const totalScore = Object.entries(scores).reduce((sum, [, value]) => sum + getScoreValue(value), 0)
 
       const tier = this.calculateTier(totalScore)
 
@@ -217,9 +212,9 @@ class ScoresService {
         issuer: issuerId,
         scores: Object.entries(scores).map(([key, value]) => ({
           key,
-          raw: (value as { score: number }).score,
-          weighted: (value as { score: number }).score,
-          note: `${key} score calculation`
+          raw: getScoreValue(value),
+          weighted: getScoreValue(value),
+          note: typeof value === 'object' ? value.note : `${key} score calculation`
         })),
         totalScore,
         badge: tier,
