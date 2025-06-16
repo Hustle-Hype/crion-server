@@ -1,33 +1,32 @@
 import { ObjectId } from 'mongodb'
-
-export interface IdentitySubDocument {
-  provider: string // google, facebook, wallet, etc.
-  id: string // googleId, socialId, address (depends on provider)
-  email?: string // only for Google/Facebook
-  network?: string // only for Wallet
-  verifiedAt?: Date
-  extra?: object // depends on provider, easy to extend
-}
+import { BehaviorFlagType, IssuerStatus, KYCStatusType, NetworkType, ProviderType } from '~/constants/enum'
 
 export interface SocialLinkSubDocument {
-  provider: string // x, linkedin, telegram
+  provider: Exclude<ProviderType, ProviderType.WALLET>
   socialId: string
   verifiedAt: Date
 }
 
+export interface WalletLinkSubDocument {
+  network: NetworkType
+  address: string
+  verifiedAt: Date
+}
+
 export interface KYCStatus {
-  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  status: KYCStatusType
   provider?: string
   verifiedAt?: Date
   expiration?: Date
-  metadata?: object
+  metadata?: Record<string, unknown>
 }
 
 export interface BehaviorFlag {
-  flagType: string // e.g. 'spam', 'scam', 'malware', 'phishing', 'other'
-  severity: number // 1-5
+  flagType: BehaviorFlagType
+  severity: 1 | 2 | 3 | 4 | 5
   detectedAt: Date
-  txReference: string // e.g. transaction hash
+  txReference: string
+  details?: string
 }
 
 // Ban info group
@@ -38,78 +37,56 @@ export interface BanInfo {
   expiredAt?: Date
 }
 
+export interface IssuerMetadata {
+  preferences?: {
+    notifications?: boolean
+    language?: string
+    timezone?: string
+  }
+  customFields?: Record<string, unknown>
+}
+
 // Main IIssuer schema
 export interface IIssuer {
   _id: ObjectId
   name: string
-  image?: string
+  primaryEmail: string // Main email used for communication
+  avatar?: string
+  isEmailVerified: boolean
   bio?: string
-  identities: IdentitySubDocument[]
   stakedAmount: number
   website?: string
   socialLinks: SocialLinkSubDocument[]
+  walletLinks: WalletLinkSubDocument[]
   kycStatus: KYCStatus
   behaviorFlags: BehaviorFlag[]
   verifiedAt?: Date
-  status: 'unverified' | 'verified' | 'banned'
+  status: IssuerStatus
+  metadata?: IssuerMetadata
   banInfo?: BanInfo
   createdAt: Date
   updatedAt: Date
+  lastLoginAt?: Date
 }
 
-type IssuerInitParams =
-  | { type: 'google'; email: string; googleId: string }
-  | { type: 'wallet'; wallet: { address: string; network: string } }
+// Helper function to create a new issuer
+export function createIssuer(params: { name: string; primaryEmail: string; avatar?: string }): Omit<IIssuer, '_id'> {
+  const now = new Date()
 
-function createBaseIssuer(): Omit<Partial<IIssuer>, 'identities'> {
   return {
-    name: '',
-    image: '',
-    bio: '',
+    name: params.name,
+    primaryEmail: params.primaryEmail,
+    avatar: params.avatar,
+    isEmailVerified: false,
     stakedAmount: 0,
-    website: undefined,
     socialLinks: [],
+    walletLinks: [],
     kycStatus: {
-      status: 'pending',
-      provider: '',
-      verifiedAt: undefined,
-      expiration: undefined,
-      metadata: {}
+      status: KYCStatusType.PENDING
     },
     behaviorFlags: [],
-    verifiedAt: undefined,
-    status: 'unverified',
-    banInfo: undefined,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  }
-}
-
-export function createDefaultIssuerStructure(params: IssuerInitParams): Partial<IIssuer> {
-  const base = createBaseIssuer()
-
-  switch (params.type) {
-    case 'google':
-      return {
-        ...base,
-        identities: [
-          {
-            provider: 'google',
-            id: params.googleId,
-            email: params.email
-          }
-        ]
-      }
-    case 'wallet':
-      return {
-        ...base,
-        identities: [
-          {
-            provider: 'wallet',
-            id: params.wallet.address,
-            network: params.wallet.network
-          }
-        ]
-      }
+    status: IssuerStatus.ACTIVE,
+    createdAt: now,
+    updatedAt: now
   }
 }
