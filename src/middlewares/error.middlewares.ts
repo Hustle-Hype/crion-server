@@ -4,20 +4,22 @@ import { httpStatusCode } from '~/core/httpStatusCode'
 import { logger } from '~/loggers/my-logger.log'
 import { ErrorResponse, EntityError, ErrorWithStatus, ValidationError } from '~/utils/error.utils'
 
-// Định nghĩa rõ kiểu là ErrorRequestHandler
-export const defaultErrorHandler: ErrorRequestHandler = (err, req, res) => {
-  // Chuẩn bị thông tin request để log
+export const defaultErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  if (res.headersSent) {
+    next(err)
+    return
+  }
+
   const requestInfo = {
     method: req.method,
     originalUrl: req.originalUrl,
     params: req.params,
-    body: omit(req.body, ['password', 'confirmPassword']), // Loại bỏ các field nhạy cảm
+    body: omit(req.body, ['password', 'confirmPassword']),
     query: req.query,
     userIP: req.ip || req.socket.remoteAddress,
     userId: (req as any).decodedAuthorization?.userId || 'NOT_AUTHENTICATED' // eslint-disable-line @typescript-eslint/no-explicit-any
   }
 
-  // Chuẩn bị response error mặc định
   const errorResponse: ErrorResponse = {
     error: {
       message: 'Internal Server Error',
@@ -25,7 +27,6 @@ export const defaultErrorHandler: ErrorRequestHandler = (err, req, res) => {
     }
   }
 
-  // Log error details
   logger.error(
     err.message,
     'ErrorHandler',
@@ -40,10 +41,8 @@ export const defaultErrorHandler: ErrorRequestHandler = (err, req, res) => {
     }
   )
 
-  // Set response headers
   res.setHeader('Content-Type', 'application/json')
 
-  // Xử lý các loại error khác nhau
   if (err instanceof ErrorWithStatus) {
     errorResponse.error = {
       message: err.message,
@@ -70,7 +69,6 @@ export const defaultErrorHandler: ErrorRequestHandler = (err, req, res) => {
     return
   }
 
-  // Xử lý unknown errors
   if (process.env.NODE_ENV === 'development') {
     Object.getOwnPropertyNames(err).forEach((key) => {
       Object.defineProperty(err, key, { enumerable: true })
