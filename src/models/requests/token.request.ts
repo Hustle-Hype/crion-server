@@ -2,9 +2,7 @@ import { ObjectId } from 'mongodb'
 import { TokenType } from '~/models/schemas/token.schema'
 
 export interface TokenPayload {
-  // Identity fields
   issuerId: ObjectId
-  accountId?: ObjectId
   type: TokenType
 
   // Standard JWT fields
@@ -17,7 +15,6 @@ export interface TokenPayload {
   // Security context
   ip: string
   userAgent: string
-  fingerprint: string
   deviceInfo: {
     browser?: string
     browserVersion?: string
@@ -26,6 +23,5 @@ export interface TokenPayload {
     device?: string
   }
 
-  // Authorization
   scope?: string[] // Permission scopes if needed
 }

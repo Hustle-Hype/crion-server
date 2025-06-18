@@ -1,8 +1,14 @@
 import { ObjectId } from 'mongodb'
 
 export enum TokenType {
-  AccessToken = 'AccessToken',
-  RefreshToken = 'RefreshToken'
+  AccessToken = 'accessToken',
+  RefreshToken = 'refreshToken'
+}
+
+export enum TokenStatus {
+  Active = 'active',
+  Revoked = 'revoked',
+  Rotated = 'rotated'
 }
 
 export interface IToken {
@@ -10,63 +16,33 @@ export interface IToken {
   token: string
   type: TokenType
   issuerId: ObjectId
-  accountId?: ObjectId
+  status: TokenStatus
+  rotatedToToken?: string
+  revokedAt?: Date
   expiresAt: Date
-  ipAddress: string
-  fingerprint: string
-  createdAt?: Date
-  updatedAt?: Date
+  createdAt: Date
+  updatedAt: Date
+  userAgent?: string
+  ipAddress?: string
 }
 
-export class Token implements IToken {
-  _id?: ObjectId
+export interface CreateTokenData {
   token: string
   type: TokenType
   issuerId: ObjectId
-  accountId?: ObjectId
   expiresAt: Date
-  ipAddress: string
-  fingerprint: string
-  createdAt?: Date
-  updatedAt?: Date
-
-  constructor({ token, type, issuerId, accountId, expiresAt, ipAddress, fingerprint, createdAt, updatedAt }: IToken) {
-    this.token = token
-    this.type = type
-    this.issuerId = issuerId
-    this.accountId = accountId
-    this.expiresAt = expiresAt
-    this.ipAddress = ipAddress
-    this.fingerprint = fingerprint
-    this.createdAt = createdAt
-    this.updatedAt = updatedAt
-  }
+  userAgent?: string
+  ipAddress?: string
 }
 
-export const TokenModel = {
-  collectionName: 'tokens',
-  jsonSchema: {
-    bsonType: 'object',
-    required: ['token', 'type', 'expiresAt', 'fingerprint'],
-    properties: {
-      _id: { bsonType: 'objectId' },
-      token: { bsonType: 'string' },
-      type: { bsonType: 'string', enum: Object.values(TokenType) },
-      issuerId: { bsonType: 'objectId' },
-      accountId: { bsonType: 'objectId' },
-      expiresAt: { bsonType: 'date' },
-      ipAddress: { bsonType: 'string' },
-      fingerprint: { bsonType: 'string' },
-      createdAt: { bsonType: 'date' },
-      updatedAt: { bsonType: 'date' }
-    }
-  },
-  indexes: [
-    { key: { token: 1 }, unique: true },
-    { key: { type: 1 } },
-    { key: { issuerId: 1 } },
-    { key: { accountId: 1 } },
-    { key: { expiresAt: 1 } },
-    { key: { fingerprint: 1 } }
-  ]
-}
+export const createToken = (data: CreateTokenData): IToken => ({
+  token: data.token,
+  type: data.type,
+  issuerId: data.issuerId,
+  status: TokenStatus.Active,
+  expiresAt: data.expiresAt,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  userAgent: data.userAgent,
+  ipAddress: data.ipAddress
+})
