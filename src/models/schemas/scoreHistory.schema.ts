@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb'
 
 export interface IScoreHistory {
   _id: ObjectId
-  issuer: ObjectId // ref Issuer._id
+  issuerId: ObjectId // ref Issuer._id
   scores: {
     key: string // e.g. 'social:x', 'wallet', 'staking', 'kyc', 'behavior', 'launch
     raw: number // raw score (0–100)
@@ -24,7 +24,7 @@ export const createDefaultScoreHistoryStructure = (params: IScoreHistory): IScor
   return {
     ...params,
     _id: new ObjectId(today.toISOString()),
-    issuer: new ObjectId(params.issuer),
+    issuerId: new ObjectId(params.issuerId),
     recordedAt: new Date(),
     version: 1,
     source: 'system',

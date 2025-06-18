@@ -5,7 +5,6 @@ import * as UAParser from 'ua-parser-js'
 export interface SecurityContext {
   ip: string
   userAgent: string
-  fingerprint?: string
   deviceInfo: {
     browser?: string
     browserVersion?: string
@@ -67,22 +66,22 @@ export function generateJti(): string {
   return randomUUID()
 }
 
-/**
- * Tạo browser fingerprint từ các thông tin của request
- */
-export function generateFingerprint(req: Request): string {
-  const components = [
-    req.headers['user-agent'],
-    req.headers['accept-language'],
-    req.headers['sec-ch-ua'], // Browser info
-    req.headers['sec-ch-ua-platform'], // OS platform
-    req.headers['sec-ch-ua-mobile'], // Mobile indicator
-    getClientIp(req)
-  ]
+// /**
+//  * Tạo browser fingerprint từ các thông tin của request
+//  */
+// export function generateFingerprint(req: Request): string {
+//   const components = [
+//     req.headers['user-agent'],
+//     req.headers['accept-language'],
+//     req.headers['sec-ch-ua'], // Browser info
+//     req.headers['sec-ch-ua-platform'], // OS platform
+//     req.headers['sec-ch-ua-mobile'], // Mobile indicator
+//     getClientIp(req)
+//   ]
 
-  // Tạo một chuỗi duy nhất từ các components
-  return Buffer.from(components.join('|')).toString('base64')
-}
+//   // Tạo một chuỗi duy nhất từ các components
+//   return Buffer.from(components.join('|')).toString('base64')
+// }
 
 /**
  * Lấy toàn bộ security context từ request
@@ -93,7 +92,6 @@ export function getSecurityContext(req: Request): SecurityContext {
   return {
     ip: getClientIp(req),
     userAgent,
-    fingerprint: generateFingerprint(req),
     deviceInfo: parseUserAgent(userAgent)
   }
 }

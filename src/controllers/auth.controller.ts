@@ -1,84 +1,62 @@
-import { Request, Response, NextFunction } from 'express'
-import { httpStatusCode } from '~/core/httpStatusCode'
-import { ErrorWithStatus } from '~/utils/error.utils'
+import { Request, Response } from 'express'
 import { AUTH_MESSAGES } from '~/constants/messages'
 import authService from '~/services/auth.service'
-import { logger } from '~/loggers/my-logger.log'
+import { OK } from '~/core/succes.response'
+import { TokenPayload } from '~/models/requests/token.request'
 
 class AuthController {
-  async handleSocialLoginCallback(req: Request, res: Response, next: NextFunction) {
-    try {
-      const authenticatedSession = req.user
-      if (!authenticatedSession) {
-        throw new ErrorWithStatus({
-          message: AUTH_MESSAGES.UNAUTHORIZED,
-          status: httpStatusCode.UNAUTHORIZED
-        })
-      }
+  async handleNonce(req: Request, res: Response) {
+    const { wallet_address } = req.query
 
-      // Log successful authentication
-      logger.info('Social login successful', 'auth.handleSocialLoginCallback', '', {
-        provider: authenticatedSession.account?.provider
-      })
+    const nonce = await authService.generateNonce(wallet_address as string)
 
-      // Return tokens and issuer info
-      res.json({
-        message: AUTH_MESSAGES.LOGIN_SUCCESS,
-        result: {
-          access_token: authenticatedSession.accessToken,
-          refresh_token: authenticatedSession.refreshToken,
-          issuer: authenticatedSession.issuer,
-          linked_account: authenticatedSession.account
-        }
-      })
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      logger.error('Social login callback error', 'auth.handleSocialLoginCallback', '', { error: errorMessage })
-      next(error)
-    }
+    new OK({
+      message: AUTH_MESSAGES.NONCE_GENERATED,
+      data: nonce
+    }).send(res)
   }
 
-  async handleRefreshToken(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { refresh_token } = req.body
-      if (!refresh_token) {
-        throw new ErrorWithStatus({
-          message: AUTH_MESSAGES.REFRESH_TOKEN_IS_REQUIRED,
-          status: httpStatusCode.BAD_REQUEST
-        })
-      }
-
-      const result = await authService.refreshToken(refresh_token, req)
-      res.json({
-        message: AUTH_MESSAGES.REFRESH_TOKEN_SUCCESS,
-        result: {
-          access_token: result.accessToken,
-          refresh_token: result.refreshToken
-        }
-      })
-    } catch (error) {
-      next(error)
-    }
+  async handleWalletLogin(req: Request, res: Response) {
+    const result = await authService.handleWalletLogin(req.body, req)
+    new OK({
+      message: AUTH_MESSAGES.LOGIN_SUCCESS,
+      data: result
+    }).send(res)
   }
 
-  async handleLogout(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { refresh_token } = req.body
-      if (!refresh_token) {
-        throw new ErrorWithStatus({
-          message: AUTH_MESSAGES.REFRESH_TOKEN_IS_REQUIRED,
-          status: httpStatusCode.BAD_REQUEST
-        })
-      }
-
-      await authService.logout(refresh_token)
-      res.json({
-        message: AUTH_MESSAGES.LOGOUT_SUCCESS
-      })
-    } catch (error) {
-      next(error)
-    }
+  async handleRefreshToken(req: Request, res: Response) {
+    const result = await authService.refreshToken(req.body.refreshToken, req)
+    new OK({
+      message: AUTH_MESSAGES.REFRESH_TOKEN_SUCCESS,
+      data: result
+    }).send(res)
   }
+
+  async handleLogout(req: Request, res: Response) {
+    const result = await authService.logout(req.body.refreshToken)
+    new OK({
+      message: AUTH_MESSAGES.LOGOUT_SUCCESS,
+      data: result
+    }).send(res)
+  }
+
+  async handleRevokeAllTokens(req: Request, res: Response) {
+    const { issuerId } = req.decodedAuthorization as TokenPayload
+    await authService.revokeAllUserTokens(issuerId)
+    new OK({
+      message: AUTH_MESSAGES.ALL_TOKENS_REVOKED_SUCCESS
+    }).send(res)
+  }
+
+  // async handleGoogleCallback(req: Request, res: Response) {
+  //   const result = await authService.handleGoogleCallback(req)
+  //   res.redirect(`${envConfig.clientUrl}/auth/callback?token=${result.accessToken}`)
+  // }
+
+  // async handleTwitterCallback(req: Request, res: Response) {
+  //   const result = await authService.handleTwitterCallback(req)
+  //   res.redirect(`${envConfig.clientUrl}/auth/callback?token=${result.accessToken}`)
+  // }
 }
 
 export default new AuthController()

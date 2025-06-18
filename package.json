@@ -16,8 +16,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aptos-labs/ts-sdk": "^2.0.1",
     "@types/compression": "^1.8.0",
     "@types/cors": "^2.8.18",
+    "@types/express-serve-static-core": "^5.0.6",
     "@types/lodash": "^4.17.17",
     "@types/minimist": "^1.2.5",
     "@types/morgan": "^1.9.9",
@@ -28,6 +30,7 @@
     "compression": "^1.8.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
+    "ethers": "^6.11.1",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
     "express-validator": "^7.2.1",
@@ -42,6 +45,8 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-google-oidc": "^0.1.0",
     "passport-twitter": "^1.0.4",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
     "ua-parser-js": "^2.0.3",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0"

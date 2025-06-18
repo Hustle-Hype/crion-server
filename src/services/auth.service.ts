@@ -1,23 +1,46 @@
 import { ObjectId } from 'mongodb'
-import { TokenType } from '~/models/schemas/token.schema'
+import { TokenType, TokenStatus, createToken } from '~/models/schemas/token.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
 import { IAccount, createAccount } from '~/models/schemas/account.schema'
 import { ProviderType } from '~/constants/enum'
 import databaseServices from './database.services'
 import { createIssuer } from '~/models/schemas/issuer.schema'
-import scoresService from './scores.service'
 import { ErrorWithStatus } from '~/utils/error.utils'
 import { httpStatusCode } from '~/core/httpStatusCode'
 import { AUTH_MESSAGES } from '~/constants/messages'
-import { signToken, verifyToken } from '~/utils/jwt.utils'
+import { signToken } from '~/utils/jwt.utils'
 import { Request } from 'express'
-import { envConfig } from '~/config/config'
-import {
-  DEFAULT_ACCESS_TOKEN_EXPIRES_IN,
-  DEFAULT_REFRESH_TOKEN_EXPIRES_IN,
-  MAX_REFRESH_TOKEN_EXPIRES_IN
-} from '~/constants/token'
 import { logger } from '~/loggers/my-logger.log'
+import { WalletLoginResponse, NonceResponse } from '~/models/types/auth.types'
+import { ethers } from 'ethers'
+import scoresService from './scores.service'
+import { envConfig } from '~/config/config'
+import { WalletLoginRequest, AptosSignature } from '~/models/requests/login.request'
+import { logAuthEvent } from '~/loggers/auth.logger'
+import { Aptos, Network, AptosConfig, Ed25519PublicKey, Ed25519Signature } from '@aptos-labs/ts-sdk'
+
+interface JWTSignature {
+  signature: {
+    jwtHeader: string
+    ephemeralPublicKey: {
+      publicKey: {
+        key: {
+          data: Record<string, number>
+        }
+      }
+      variant: number
+    }
+    ephemeralSignature: {
+      signature: {
+        data: {
+          data: Record<string, number>
+        }
+      }
+    }
+    expiryDateSecs: number
+  }
+  variant: number
+}
 
 type SocialProvider = Extract<
   ProviderType,
@@ -31,23 +54,29 @@ export interface AuthResult {
   refreshToken: string
 }
 
+interface NonceData {
+  nonce: string
+  timestamp: number
+}
+
 class AuthService {
-  private getAccessTokenExpiresIn(): number {
-    const configValue = envConfig.accessTokenExpiresIn
-    if (typeof configValue === 'string') {
-      const parsed = parseInt(configValue)
-      return isNaN(parsed) ? DEFAULT_ACCESS_TOKEN_EXPIRES_IN : parsed
-    }
-    return configValue || DEFAULT_ACCESS_TOKEN_EXPIRES_IN
+  private nonceMap = new Map<string, NonceData>()
+  private readonly NONCE_EXPIRY = 5 * 60 * 1000 // 5 minutes in milliseconds
+  private readonly aptosClient: Aptos
+
+  constructor() {
+    setInterval(() => this.cleanupExpiredNonces(), 60 * 1000)
+    const config = new AptosConfig({ network: Network.MAINNET })
+    this.aptosClient = new Aptos(config)
   }
 
-  private getRefreshTokenExpiresIn(): number {
-    const configValue = envConfig.refreshTokenExpiresIn
-    if (typeof configValue === 'string') {
-      const parsed = parseInt(configValue)
-      return isNaN(parsed) ? DEFAULT_REFRESH_TOKEN_EXPIRES_IN : Math.min(parsed, MAX_REFRESH_TOKEN_EXPIRES_IN)
+  private cleanupExpiredNonces() {
+    const now = Date.now()
+    for (const [address, data] of this.nonceMap.entries()) {
+      if (now - data.timestamp > this.NONCE_EXPIRY) {
+        this.nonceMap.delete(address)
+      }
     }
-    return configValue ? Math.min(configValue, MAX_REFRESH_TOKEN_EXPIRES_IN) : DEFAULT_REFRESH_TOKEN_EXPIRES_IN
   }
 
   private async updateSocialScore(issuerId: ObjectId) {
@@ -79,13 +108,13 @@ class AuthService {
     if (!issuer) {
       const newIssuer = createIssuer({
         name: profile.displayName || profile.username || 'Anonymous',
-        primaryEmail: email || `${profile.id}@${provider.toLowerCase()}.generated`,
+        primaryWallet: profile.id,
         avatar: profile.photos?.[0]?.value
       })
 
       logger.info('Creating new issuer', 'AuthService.findOrCreateIssuerAndAccount', '', {
         name: newIssuer.name,
-        email: newIssuer.primaryEmail,
+        primaryWallet: newIssuer.primaryWallet,
         provider
       })
 
@@ -96,7 +125,6 @@ class AuthService {
     }
 
     const newAccount = createAccount(issuer._id, {
-      type: 'social',
       provider,
       providerAccountId: profile.id,
       metadata: {
@@ -124,18 +152,14 @@ class AuthService {
   ): Promise<AuthResult> {
     const { issuer, account } = await this.findOrCreateIssuerAndAccount(profile, provider)
 
-    console.log('profile', profile)
-
     const accessToken = await signToken({
       issuerId: issuer._id,
-      accountId: account._id,
       type: TokenType.AccessToken,
       req
     })
 
     const refreshToken = await signToken({
       issuerId: issuer._id,
-      accountId: account._id,
       type: TokenType.RefreshToken,
       req
     })
@@ -150,51 +174,432 @@ class AuthService {
     }
   }
 
-  async refreshToken(refreshToken: string, req: Request): Promise<{ accessToken: string; refreshToken: string }> {
-    try {
-      // Verify refresh token
-      const decoded = await verifyToken({ token: refreshToken, type: TokenType.RefreshToken, req })
-
-      // Generate new tokens
-      const newAccessToken = await signToken({
-        issuerId: decoded.issuerId,
-        accountId: decoded.accountId,
-        type: TokenType.AccessToken,
-        req
-      })
-
-      const newRefreshToken = await signToken({
-        issuerId: decoded.issuerId,
-        accountId: decoded.accountId,
-        type: TokenType.RefreshToken,
-        req
-      })
-
-      return {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken
-      }
-    } catch (error) {
-      logger.error('Error refreshing token', 'AuthService.refreshToken', '', { error })
-      throw new ErrorWithStatus({
-        message: AUTH_MESSAGES.INVALID_TOKEN,
-        status: httpStatusCode.UNAUTHORIZED
-      })
-    }
-  }
-
-  async logout(refreshToken: string): Promise<void> {
-    // Find and delete the refresh token
-    const result = await databaseServices.tokens.deleteOne({
-      token: refreshToken,
-      type: TokenType.RefreshToken
+  private async saveToken(
+    token: string,
+    type: TokenType,
+    issuerId: ObjectId,
+    expiresAt: Date,
+    req: Request
+  ): Promise<void> {
+    const tokenDoc = createToken({
+      token,
+      type,
+      issuerId,
+      expiresAt,
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip
     })
 
-    if (!result.deletedCount) {
+    await databaseServices.tokens.insertOne(tokenDoc)
+  }
+
+  public async revokeToken(token: string, type: TokenType): Promise<void> {
+    const tokenDoc = await databaseServices.tokens.findOne({ token, type, status: TokenStatus.Active })
+    if (!tokenDoc) {
       throw new ErrorWithStatus({
         message: AUTH_MESSAGES.TOKEN_NOT_FOUND,
         status: httpStatusCode.NOT_FOUND
       })
+    }
+
+    await this.revokeTokenById(tokenDoc._id)
+    logAuthEvent({
+      userId: tokenDoc.issuerId.toString(),
+      event: 'token_revoked',
+      metadata: { token, type }
+    })
+  }
+
+  private async revokeTokenById(tokenId: ObjectId): Promise<void> {
+    await databaseServices.tokens.updateOne(
+      { _id: tokenId },
+      {
+        $set: {
+          status: TokenStatus.Revoked,
+          revokedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    )
+  }
+
+  private async rotateToken(oldToken: string, newToken: string): Promise<void> {
+    await databaseServices.tokens.updateOne(
+      { token: oldToken },
+      {
+        $set: {
+          status: TokenStatus.Rotated,
+          rotatedToToken: newToken,
+          updatedAt: new Date()
+        }
+      }
+    )
+  }
+
+  async revokeAllUserTokens(issuerId: ObjectId): Promise<void> {
+    const now = new Date()
+    const result = await databaseServices.tokens.updateMany(
+      {
+        issuerId: new ObjectId(issuerId.toString()),
+        status: TokenStatus.Active
+      },
+      {
+        $set: {
+          status: TokenStatus.Revoked,
+          revokedAt: now,
+          updatedAt: now
+        }
+      }
+    )
+
+    logAuthEvent({
+      userId: issuerId.toString(),
+      event: 'all_tokens_revoked',
+      metadata: { revokedCount: result.modifiedCount }
+    })
+  }
+
+  private async generateTokens(issuerId: ObjectId, req: Request): Promise<[string, string]> {
+    const [accessToken, refreshToken] = await Promise.all([
+      signToken({
+        issuerId,
+        type: TokenType.AccessToken,
+        req
+      }),
+      signToken({
+        issuerId,
+        type: TokenType.RefreshToken,
+        req
+      })
+    ])
+
+    return [accessToken, refreshToken]
+  }
+
+  private async revokeAllActiveTokens(issuerId: ObjectId): Promise<void> {
+    const now = new Date()
+    await databaseServices.tokens.updateMany(
+      {
+        issuerId,
+        status: TokenStatus.Active
+      },
+      {
+        $set: {
+          status: TokenStatus.Revoked,
+          revokedAt: now,
+          updatedAt: now
+        }
+      }
+    )
+  }
+
+  async refreshToken(oldRefreshToken: string, req: Request): Promise<{ accessToken: string; refreshToken: string }> {
+    const tokenDoc = await databaseServices.tokens.findOne({
+      token: oldRefreshToken,
+      type: TokenType.RefreshToken,
+      status: TokenStatus.Active
+    })
+
+    if (!tokenDoc) {
+      logAuthEvent({
+        event: 'token_refresh',
+        error: 'Invalid refresh token'
+      })
+      throw new ErrorWithStatus({
+        message: AUTH_MESSAGES.USED_REFRESH_TOKEN_OR_NOT_EXIST,
+        status: httpStatusCode.UNAUTHORIZED
+      })
+    }
+
+    const [newAccessToken, newRefreshToken] = await this.generateTokens(tokenDoc.issuerId, req)
+
+    await this.rotateToken(oldRefreshToken, newRefreshToken)
+
+    logAuthEvent({
+      userId: tokenDoc.issuerId.toString(),
+      event: 'token_refresh',
+      metadata: { oldToken: oldRefreshToken }
+    })
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken
+    }
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    const tokenDoc = await databaseServices.tokens.findOne({
+      token: refreshToken,
+      type: TokenType.RefreshToken,
+      status: TokenStatus.Active
+    })
+
+    if (tokenDoc) {
+      await this.revokeToken(refreshToken, TokenType.RefreshToken)
+      logAuthEvent({
+        userId: tokenDoc.issuerId.toString(),
+        event: 'logout'
+      })
+    }
+  }
+
+  private generateSignMessage(nonce: string, address: string): string {
+    if (address.startsWith('0x')) {
+      const message = {
+        nonce: nonce,
+        address: address,
+        timestamp: Date.now(),
+        domain: new URL(envConfig.clientUrl).hostname
+      }
+      return JSON.stringify(message)
+    }
+
+    return `Welcome to ${envConfig.appName}!\n\nPlease sign this message to verify your wallet ownership.\n\nNonce: ${nonce}\nWallet: ${address}\n\nThis signature will not trigger any blockchain transaction or cost any gas fees.`
+  }
+
+  async generateNonce(address: string): Promise<NonceResponse> {
+    const nonce = ethers.hexlify(ethers.randomBytes(32))
+    const normalizedAddress = address.toLowerCase()
+    const timestamp = Date.now()
+
+    this.nonceMap.set(normalizedAddress, {
+      nonce,
+      timestamp
+    })
+
+    const message = this.generateSignMessage(nonce, address)
+    return { nonce, message }
+  }
+
+  private async verifyAptosSignature(address: string, signature: AptosSignature): Promise<boolean> {
+    try {
+      logger.info('Starting signature verification', 'AuthService.verifyAptosSignature', '', {
+        address,
+        publicKey: signature.publicKey,
+        signatureLength: signature.signature.length,
+        message: signature.message,
+        fullMessage: signature.fullMessage
+      })
+
+      const pubKey = new Ed25519PublicKey(signature.publicKey)
+
+      const signatureObj = new Ed25519Signature(signature.signature)
+
+      const messageBytes = new TextEncoder().encode(signature.fullMessage)
+
+      logger.info('Verifying signature', 'AuthService.verifyAptosSignature', '', {
+        messageBytes: Array.from(messageBytes),
+        signatureHex: signature.signature,
+        fullMessage: signature.fullMessage
+      })
+
+      const isValid = pubKey.verifySignature({
+        message: messageBytes,
+        signature: signatureObj
+      })
+
+      if (!isValid) {
+        logger.error('Signature verification failed', 'AuthService.verifyAptosSignature', '', {
+          message: signature.message,
+          fullMessage: signature.fullMessage,
+          signatureHex: signature.signature,
+          publicKey: signature.publicKey
+        })
+        return false
+      }
+
+      logger.info('Signature verified successfully', 'AuthService.verifyAptosSignature')
+      return true
+    } catch (error) {
+      logger.error('Error verifying Aptos signature', 'AuthService.verifyAptosSignature', '', {
+        error,
+        signature: JSON.stringify(signature, null, 2)
+      })
+      return false
+    }
+  }
+
+  private bufferFromData(data: Record<string, number>): Buffer {
+    const arr = new Uint8Array(Object.values(data))
+    return Buffer.from(arr)
+  }
+
+  private async verifyJWTSignature(signature: JWTSignature, message: string): Promise<boolean> {
+    try {
+      const headerObj = JSON.parse(signature.signature.jwtHeader)
+      if (headerObj.alg !== 'RS256') {
+        logger.error('Unsupported JWT algorithm', 'AuthService.verifyJWTSignature', '', {
+          algorithm: headerObj.alg
+        })
+        return false
+      }
+
+      const publicKeyData = signature.signature.ephemeralPublicKey?.publicKey?.key?.data || {}
+      const publicKeyBytes = Object.values(publicKeyData)
+
+      const signatureData = signature.signature.ephemeralSignature?.signature?.data?.data || {}
+      const signatureBytes = Object.values(signatureData)
+
+      if (!publicKeyBytes.length || !signatureBytes.length) {
+        logger.error('Missing required signature components', 'AuthService.verifyJWTSignature', '', {
+          hasPublicKey: !!publicKeyBytes.length,
+          hasSignature: !!signatureBytes.length
+        })
+        return false
+      }
+
+      const now = Math.floor(Date.now() / 1000)
+      const isValid = signature.signature.expiryDateSecs > now
+
+      return isValid
+    } catch (error) {
+      logger.error('Error in JWT signature verification', 'AuthService.verifyJWTSignature', '', {
+        error
+      })
+      return false
+    }
+  }
+
+  private async verifySignature(
+    address: string,
+    signature: string | Omit<AptosSignature, 'nonce'> | JWTSignature,
+    message: string
+  ): Promise<boolean> {
+    try {
+      if (typeof signature === 'object' && 'signature' in signature && signature.signature?.jwtHeader) {
+        return this.verifyJWTSignature(signature as JWTSignature, message)
+      }
+
+      if (typeof signature === 'object' && 'prefix' in signature && signature.prefix === 'APTOS') {
+        return this.verifyAptosSignature(address, { ...signature, nonce: JSON.parse(message).nonce })
+      }
+
+      if (typeof signature === 'string') {
+        const signerAddress = ethers.verifyMessage(message, signature)
+        const isValid = signerAddress.toLowerCase() === address.toLowerCase()
+        return isValid
+      }
+
+      return false
+    } catch (error) {
+      logger.error('Error verifying signature', 'AuthService.verifySignature', '', {
+        error
+      })
+      return false
+    }
+  }
+
+  private async findOrCreateIssuer(address: string): Promise<IIssuer> {
+    const normalizedAddress = address.toLowerCase()
+    let issuer = await databaseServices.issuers.findOne({ primaryWallet: normalizedAddress })
+
+    if (!issuer) {
+      const newIssuer = createIssuer({ primaryWallet: normalizedAddress })
+      const result = await databaseServices.issuers.insertOne(newIssuer as unknown as IIssuer)
+      issuer = { ...newIssuer, _id: result.insertedId }
+    }
+
+    return issuer
+  }
+
+  async handleWalletLogin(data: WalletLoginRequest, req: Request): Promise<WalletLoginResponse> {
+    const { address, signature, message } = data
+    const normalizedAddress = address.toLowerCase()
+
+    try {
+      // For Aptos, we validate the message content first
+      try {
+        const parsedMessage = JSON.parse(message)
+        const now = Date.now()
+
+        // Validate nonce
+        const storedNonceData = this.nonceMap.get(normalizedAddress)
+        if (!storedNonceData || storedNonceData.nonce !== parsedMessage.nonce) {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.INVALID_SIGNATURE,
+            status: httpStatusCode.UNAUTHORIZED
+          })
+        }
+
+        // Validate timestamp
+        if (Math.abs(now - parsedMessage.timestamp) > this.NONCE_EXPIRY) {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.NONCE_EXPIRED,
+            status: httpStatusCode.UNAUTHORIZED
+          })
+        }
+
+        // Validate domain
+        const expectedDomain = new URL(envConfig.clientUrl).hostname
+        if (parsedMessage.domain !== expectedDomain) {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.INVALID_SIGNATURE,
+            status: httpStatusCode.UNAUTHORIZED
+          })
+        }
+
+        // Verify signature
+        const isValidSignature = await this.verifySignature(address, signature, message)
+        if (!isValidSignature) {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.INVALID_SIGNATURE,
+            status: httpStatusCode.UNAUTHORIZED
+          })
+        }
+
+        // Clean up nonce after successful validation
+        this.nonceMap.delete(normalizedAddress)
+
+        const issuer = await this.findOrCreateIssuer(normalizedAddress)
+
+        // Revoke all active tokens before generating new ones
+        await this.revokeAllActiveTokens(issuer._id)
+
+        // Generate new tokens
+        const [accessToken, refreshToken] = await this.generateTokens(issuer._id, req)
+
+        // Update last login time
+        await databaseServices.issuers.updateOne(
+          { _id: issuer._id },
+          {
+            $set: {
+              lastLoginAt: new Date(),
+              lastLoginIP: req.ip,
+              lastLoginUserAgent: req.headers['user-agent']
+            }
+          }
+        )
+
+        return {
+          accessToken,
+          refreshToken,
+          user: {
+            id: issuer._id.toString(),
+            address: normalizedAddress,
+            score: issuer.stakedAmount || 0,
+            socialLinks: issuer.socialLinks.map((link) => ({
+              provider: link.provider,
+              providerId: link.socialId
+            }))
+          }
+        }
+      } catch (error) {
+        if (error instanceof ErrorWithStatus) {
+          throw error
+        }
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.INVALID_SIGNATURE,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+    } catch (error) {
+      if (!(error instanceof ErrorWithStatus)) {
+        logger.error('Error in handleWalletLogin', 'AuthService.handleWalletLogin', '', {
+          error,
+          signature: JSON.stringify(signature, null, 2)
+        })
+      }
+      throw error
     }
   }
 }

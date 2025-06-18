@@ -1,4 +1,3 @@
-import passport from 'passport'
 import googleStrategy from './passport/google'
 import { twitterStrategy } from './passport/twitter'
 import { PassportStatic } from 'passport'

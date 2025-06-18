@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken'
-import { TokenType, Token } from '~/models/schemas/token.schema'
+import { TokenType, createToken } from '~/models/schemas/token.schema'
 import { envConfig } from '~/config/config'
 import { TokenPayload } from '~/models/requests/token.request'
 import { ErrorWithStatus } from '~/utils/error.utils'
@@ -7,84 +7,81 @@ import { httpStatusCode } from '~/core/httpStatusCode'
 import { AUTH_MESSAGES } from '~/constants/messages'
 import { logger } from '~/loggers/my-logger.log'
 import { ObjectId } from 'mongodb'
-import { generateJti, getSecurityContext, generateFingerprint } from './security.utils'
+import { generateJti, getSecurityContext } from './security.utils'
 import { Request } from 'express'
 import databaseServices from '~/services/database.services'
 
 interface SignTokenOptions {
   issuerId: ObjectId
-  accountId?: ObjectId
   type: TokenType
   scope?: string[]
   req: Request
 }
 
 const getTokenExpiration = (type: TokenType): number => {
-  const expiresIn = type === TokenType.AccessToken ? envConfig.accessTokenExpiresIn : envConfig.refreshTokenExpiresIn
-  return typeof expiresIn === 'number' ? expiresIn : parseInt(expiresIn)
+  return type === TokenType.AccessToken ? envConfig.accessTokenExpiresIn : envConfig.refreshTokenExpiresIn
 }
 
-export const signToken = async ({ issuerId, accountId, type, scope, req }: SignTokenOptions): Promise<string> => {
-  const now = Math.floor(Date.now() / 1000) // Current time in seconds
-  const securityContext = getSecurityContext(req)
-  const fingerprint = generateFingerprint(req)
-  const expiresIn = getTokenExpiration(type)
+export const signToken = async ({ issuerId, type, scope, req }: SignTokenOptions): Promise<string> => {
+  try {
+    const now = Math.floor(Date.now() / 1000)
+    const securityContext = getSecurityContext(req)
+    const expiresIn = getTokenExpiration(type)
 
-  const payload: TokenPayload = {
-    // Identity
-    issuerId,
-    accountId,
-    type,
-
-    // Standard JWT fields
-    iat: now,
-    exp: now + expiresIn,
-    jti: generateJti(),
-    iss: envConfig.appName,
-    sub: issuerId.toString(),
-
-    // Security context
-    ...securityContext,
-    fingerprint,
-
-    // Authorization
-    scope
-  }
-
-  const privateKey = type === TokenType.AccessToken ? envConfig.jwtSecretAccessToken : envConfig.jwtSecretRefreshToken
-
-  const token = await new Promise<string>((resolve, reject) => {
-    jwt.sign(
-      payload,
-      privateKey,
-      {
-        algorithm: 'HS256'
-      },
-      (err, token) => {
-        if (err) reject(err)
-        else resolve(token as string)
-      }
-    )
-  })
-
-  // Store refresh token in database
-  if (type === TokenType.RefreshToken) {
-    const tokenDoc = new Token({
-      token,
-      type,
+    const payload: TokenPayload = {
       issuerId,
-      accountId,
-      expiresAt: new Date((now + expiresIn) * 1000), // Convert seconds to milliseconds
-      ipAddress: securityContext.ip,
-      fingerprint,
-      createdAt: new Date(now * 1000),
-      updatedAt: new Date(now * 1000)
+      type,
+
+      iat: now,
+      exp: now + expiresIn,
+      jti: generateJti(),
+      iss: envConfig.appName,
+      sub: issuerId.toString(),
+
+      ...securityContext,
+
+      scope
+    }
+
+    const privateKey = type === TokenType.AccessToken ? envConfig.jwtSecretAccessToken : envConfig.jwtSecretRefreshToken
+
+    const token = await new Promise<string>((resolve, reject) => {
+      jwt.sign(
+        payload,
+        privateKey,
+        {
+          algorithm: 'HS256'
+        },
+        (err, token) => {
+          if (err) {
+            logger.error('Error signing token', 'signToken', '', { error: err })
+            reject(err)
+          } else resolve(token as string)
+        }
+      )
     })
 
-    await databaseServices.tokens.insertOne(tokenDoc)
-  }
+    if (type === TokenType.RefreshToken) {
+      const tokenDoc = createToken({
+        token,
+        type,
+        issuerId,
+        expiresAt: new Date((now + expiresIn) * 1000),
+        userAgent: req.headers['user-agent'],
+        ipAddress: securityContext.ip
+      })
 
-  return token
+      await databaseServices.tokens.insertOne(tokenDoc)
+    }
+
+    return token
+  } catch (error) {
+    logger.error('Error in signToken', 'signToken', '', { error })
+    throw new ErrorWithStatus({
+      message: AUTH_MESSAGES.TOKEN_GENERATION_FAILED,
+      status: httpStatusCode.INTERNAL_SERVER_ERROR
+    })
+  }
 }
 
 interface VerifyTokenOptions {
@@ -98,58 +95,23 @@ export const verifyToken = async ({ token, type, req }: VerifyTokenOptions): Pro
     const secretKey = type === TokenType.AccessToken ? envConfig.jwtSecretAccessToken : envConfig.jwtSecretRefreshToken
     const decoded = await new Promise<TokenPayload>((resolve, reject) => {
       jwt.verify(token, secretKey, (err, decoded) => {
-        if (err) reject(err)
-        else resolve(decoded as TokenPayload)
+        if (err) {
+          logger.error('JWT verification failed', 'verifyToken', '', { error: err })
+          reject(err)
+        } else resolve(decoded as TokenPayload)
       })
     })
 
-    // Validate token type
     if (decoded.type !== type) {
       logger.error('Token type mismatch', 'verifyToken', '', { expected: type, received: decoded.type })
       throw new Error('Invalid token type')
     }
 
-    // Validate security context
     const securityContext = getSecurityContext(req)
-    const currentFingerprint = generateFingerprint(req)
 
     if (decoded.ip !== securityContext.ip) {
       logger.error('IP mismatch', 'verifyToken', '', { expected: securityContext.ip, received: decoded.ip })
       throw new Error('IP address mismatch')
-    }
-
-    if (decoded.fingerprint !== currentFingerprint) {
-      logger.error('Fingerprint mismatch', 'verifyToken', '', {
-        expected: currentFingerprint,
-        received: decoded.fingerprint
-      })
-      throw new Error('Device fingerprint mismatch')
-    }
-
-    // Additional checks for refresh tokens
-    if (type === TokenType.RefreshToken) {
-      const tokenDoc = await databaseServices.tokens.findOne({ token, type })
-      if (!tokenDoc) {
-        logger.error('Refresh token not found in database', 'verifyToken', '', { token })
-        throw new Error('Token not found or has been revoked')
-      }
-
-      if (tokenDoc.expiresAt < new Date()) {
-        await databaseServices.tokens.deleteOne({ _id: tokenDoc._id })
-        logger.error('Refresh token expired', 'verifyToken', '', {
-          token,
-          expiresAt: tokenDoc.expiresAt
-        })
-        throw new Error('Token has expired')
-      }
-
-      if (tokenDoc.fingerprint !== currentFingerprint) {
-        logger.error('Database fingerprint mismatch', 'verifyToken', '', {
-          expected: currentFingerprint,
-          stored: tokenDoc.fingerprint
-        })
-        throw new Error('Invalid token fingerprint')
-      }
     }
 
     return decoded
