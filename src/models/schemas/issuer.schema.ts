@@ -4,6 +4,12 @@ import { BehaviorFlagType, IssuerStatus, KYCStatusType, NetworkType, ProviderTyp
 export interface SocialLinkSubDocument {
   provider: Exclude<ProviderType, ProviderType.WALLET>
   socialId: string
+  email?: string
+  username?: string
+  displayName?: string
+  profileUrl?: string
+  avatarUrl?: string
+  metadata?: Record<string, unknown>
   verifiedAt: Date
 }
 
@@ -11,6 +17,7 @@ export interface WalletLinkSubDocument {
   network: NetworkType
   address: string
   verifiedAt: Date
+  isPrimary: boolean
 }
 
 export interface KYCStatus {
@@ -49,10 +56,9 @@ export interface IssuerMetadata {
 // Main IIssuer schema
 export interface IIssuer {
   _id: ObjectId
+  primaryWallet: string
   name: string
-  primaryEmail: string // Main email used for communication
   avatar?: string
-  isEmailVerified: boolean
   bio?: string
   stakedAmount: number
   website?: string
@@ -70,17 +76,23 @@ export interface IIssuer {
 }
 
 // Helper function to create a new issuer
-export function createIssuer(params: { name: string; primaryEmail: string; avatar?: string }): Omit<IIssuer, '_id'> {
+export function createIssuer(params: { primaryWallet: string; name?: string; avatar?: string }): Omit<IIssuer, '_id'> {
   const now = new Date()
 
   return {
-    name: params.name,
-    primaryEmail: params.primaryEmail,
+    primaryWallet: params.primaryWallet,
+    name: params.name || params.primaryWallet.slice(0, 6),
     avatar: params.avatar,
-    isEmailVerified: false,
     stakedAmount: 0,
     socialLinks: [],
-    walletLinks: [],
+    walletLinks: [
+      {
+        network: NetworkType.APTOS,
+        address: params.primaryWallet,
+        verifiedAt: now,
+        isPrimary: true
+      }
+    ],
     kycStatus: {
       status: KYCStatusType.PENDING
     },
