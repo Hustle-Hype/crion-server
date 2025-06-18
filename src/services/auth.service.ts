@@ -1,7 +1,6 @@
 import { ObjectId } from 'mongodb'
-import { TokenType, TokenStatus, createToken } from '~/models/schemas/token.schema'
+import { TokenType, TokenStatus } from '~/models/schemas/token.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
-import { ProviderType } from '~/constants/enum'
 import databaseServices from './database.services'
 import { createIssuer } from '~/models/schemas/issuer.schema'
 import { ErrorWithStatus } from '~/utils/error.utils'
@@ -12,12 +11,10 @@ import { Request } from 'express'
 import { logger } from '~/loggers/my-logger.log'
 import { WalletLoginResponse, NonceResponse } from '~/models/types/auth.types'
 import { ethers } from 'ethers'
-import scoresService from './scores.service'
 import { envConfig } from '~/config/config'
 import { WalletLoginRequest, AptosSignature } from '~/models/requests/login.request'
 import { logAuthEvent } from '~/loggers/auth.logger'
 import { Aptos, Network, AptosConfig, Ed25519PublicKey, Ed25519Signature } from '@aptos-labs/ts-sdk'
-import { createSocialLink, ISocialLink } from '~/models/schemas/socialLink.schema'
 import { createDefaultScoreStructure, IScores } from '~/models/schemas/scores.schema'
 
 interface JWTSignature {
@@ -43,18 +40,6 @@ interface JWTSignature {
   variant: number
 }
 
-type SocialProvider = Extract<
-  ProviderType,
-  ProviderType.GOOGLE | ProviderType.X | ProviderType.LINKEDIN | ProviderType.TELEGRAM
->
-
-export interface AuthResult {
-  issuer: IIssuer
-  account: ISocialLink
-  accessToken: string
-  refreshToken: string
-}
-
 interface NonceData {
   nonce: string
   timestamp: number
@@ -78,120 +63,6 @@ class AuthService {
         this.nonceMap.delete(address)
       }
     }
-  }
-
-  private async updateSocialScore(issuerId: ObjectId) {
-    await scoresService.calculateAndUpdateScores(issuerId)
-  }
-
-  private async findOrCreateIssuerAndAccount(
-    profile: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-    provider: SocialProvider
-  ): Promise<{ issuer: IIssuer; account: ISocialLink; isNew: boolean }> {
-    const existingAccount = await databaseServices.socialLinks.findOne({
-      provider,
-      providerAccountId: profile.id
-    })
-
-    if (existingAccount) {
-      const issuer = await databaseServices.issuers.findOne({ _id: existingAccount.issuerId })
-      return { issuer: issuer as IIssuer, account: existingAccount, isNew: false }
-    }
-
-    const email = profile.emails?.[0]?.value
-    let issuer = null
-
-    if (email) {
-      logger.info('Searching for issuer by email', 'AuthService.findOrCreateIssuerAndAccount', '', { email })
-      issuer = await databaseServices.issuers.findOne({ primaryEmail: email })
-    }
-
-    if (!issuer) {
-      const newIssuer = createIssuer({
-        name: profile.displayName || profile.username || 'Anonymous',
-        primaryWallet: profile.id,
-        avatar: profile.photos?.[0]?.value
-      })
-
-      logger.info('Creating new issuer', 'AuthService.findOrCreateIssuerAndAccount', '', {
-        name: newIssuer.name,
-        primaryWallet: newIssuer.primaryWallet,
-        provider
-      })
-
-      const result = await databaseServices.issuers.insertOne(newIssuer as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-      issuer = { ...newIssuer, _id: result.insertedId } as IIssuer
-
-      await this.updateSocialScore(issuer._id)
-    }
-
-    const newAccount = createSocialLink(issuer._id, {
-      provider,
-      providerAccountId: profile.id,
-      metadata: {
-        displayName: profile.displayName,
-        profileUrl: profile.profileUrl
-      }
-    })
-
-    logger.info('Creating new social account', 'AuthService.findOrCreateIssuerAndAccount', '', {
-      provider,
-      providerAccountId: profile.id,
-      issuerId: issuer._id.toString()
-    })
-
-    const accountResult = await databaseServices.socialLinks.insertOne(newAccount as ISocialLink)
-    const account = { ...newAccount, _id: accountResult.insertedId } as ISocialLink
-
-    return { issuer, account, isNew: true }
-  }
-
-  async handleSocialLogin(
-    profile: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-    provider: SocialProvider,
-    req: Request
-  ): Promise<AuthResult> {
-    const { issuer, account } = await this.findOrCreateIssuerAndAccount(profile, provider)
-
-    const accessToken = await signToken({
-      issuerId: issuer._id,
-      type: TokenType.AccessToken,
-      req
-    })
-
-    const refreshToken = await signToken({
-      issuerId: issuer._id,
-      type: TokenType.RefreshToken,
-      req
-    })
-
-    await databaseServices.issuers.updateOne({ _id: issuer._id }, { $set: { lastLoginAt: new Date() } })
-
-    return {
-      issuer,
-      account,
-      accessToken,
-      refreshToken
-    }
-  }
-
-  private async saveToken(
-    token: string,
-    type: TokenType,
-    issuerId: ObjectId,
-    expiresAt: Date,
-    req: Request
-  ): Promise<void> {
-    const tokenDoc = createToken({
-      token,
-      type,
-      issuerId,
-      expiresAt,
-      userAgent: req.headers['user-agent'],
-      ipAddress: req.ip
-    })
-
-    await databaseServices.tokens.insertOne(tokenDoc)
   }
 
   public async revokeToken(token: string, type: TokenType): Promise<void> {
@@ -418,11 +289,6 @@ class AuthService {
       })
       return false
     }
-  }
-
-  private bufferFromData(data: Record<string, number>): Buffer {
-    const arr = new Uint8Array(Object.values(data))
-    return Buffer.from(arr)
   }
 
   private async verifyJWTSignature(signature: JWTSignature, message: string): Promise<boolean> {
