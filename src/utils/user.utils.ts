@@ -8,8 +8,5 @@ export const determineVerificationStatus = (issuer: IIssuer): UserVerificationSt
   if (issuer.kycStatus.status === KYCStatusType.APPROVED) {
     return UserVerificationStatus.FullyVerified
   }
-  if (issuer.isEmailVerified) {
-    return UserVerificationStatus.EmailVerified
-  }
   return UserVerificationStatus.Unverified
 }
