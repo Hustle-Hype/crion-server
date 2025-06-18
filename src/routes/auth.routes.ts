@@ -1,48 +1,28 @@
 import { Router } from 'express'
-import passport from 'passport'
 import authController from '~/controllers/auth.controller'
+import { wrapRequestHandler } from '~/utils/wrapHandler'
+import {
+  accessTokenValidation,
+  nonceValidation,
+  refreshTokenValidation,
+  walletLoginValidation
+} from '~/middlewares/auth.middlewares'
 
 const authRouter = Router()
 
-// Social login routes
-authRouter.get(
-  '/google',
-  passport.authenticate('google', {
-    scope: ['profile', 'email'],
-    session: false
-  })
+authRouter.get('/nonce', nonceValidation, wrapRequestHandler(authController.handleNonce))
+
+authRouter.post('/wallet-login', walletLoginValidation, wrapRequestHandler(authController.handleWalletLogin))
+
+authRouter.post('/refresh-token', refreshTokenValidation, wrapRequestHandler(authController.handleRefreshToken))
+
+authRouter.post(
+  '/logout',
+  accessTokenValidation,
+  refreshTokenValidation,
+  wrapRequestHandler(authController.handleLogout)
 )
 
-authRouter.get(
-  '/google/callback',
-  passport.authenticate('google', {
-    session: false,
-    failureRedirect: '/login'
-  }),
-  authController.handleSocialLoginCallback
-)
-
-// Twitter OAuth routes
-authRouter.get(
-  '/twitter',
-  passport.authenticate('twitter', {
-    session: false
-  })
-)
-
-authRouter.get(
-  '/twitter/callback',
-  passport.authenticate('twitter', {
-    session: false,
-    failureRedirect: '/login'
-  }),
-  authController.handleSocialLoginCallback
-)
-
-// Refresh token route
-authRouter.post('/refresh-token', authController.handleRefreshToken)
-
-// Logout route
-authRouter.post('/logout', authController.handleLogout)
+authRouter.post('/revoke-all-tokens', accessTokenValidation, wrapRequestHandler(authController.handleRevokeAllTokens))
 
 export default authRouter

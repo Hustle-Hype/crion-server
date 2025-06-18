@@ -1,4 +1,3 @@
-import { AUTH_MESSAGES } from '~/constants/messages'
 import { checkSchema } from 'express-validator'
 import { validate } from '~/utils/validation.utils'
 import { verifyAccessToken, verifyRefreshToken } from '~/utils/jwt.utils'
@@ -7,122 +6,191 @@ import { ErrorWithStatus } from '~/utils/error.utils'
 import databaseServices from '~/services/database.services'
 import { httpStatusCode } from '~/core/httpStatusCode'
 import { Request } from 'express'
-// import redisClient from '~/config/redis'
+import { AUTH_MESSAGES } from '~/constants/messages'
+import { MAX_SIGNATURE_AGE } from '~/models/requests/login.request'
+import { logger } from '~/loggers/my-logger.log'
+import { wrapRequestHandler } from '~/utils/wrapHandler'
+import { ObjectId } from 'mongodb'
 
-export const accessTokenValidation = validate(
-  checkSchema({
-    authorization: {
-      trim: true,
-      custom: {
-        options: async (value: string, { req }) => {
-          if (!value) {
-            throw new ErrorWithStatus({
-              message: AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED,
-              status: httpStatusCode.UNAUTHORIZED
-            })
-          }
-          const access_token = value.split(' ')[1]
-          if (!access_token) {
-            throw new ErrorWithStatus({
-              message: AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED,
-              status: httpStatusCode.UNAUTHORIZED
-            })
-          }
+export const nonceValidation = validate(
+  checkSchema(
+    {
+      wallet_address: {
+        notEmpty: {
+          errorMessage: AUTH_MESSAGES.ADDRESS_REQUIRED
+        },
+        isString: {
+          errorMessage: AUTH_MESSAGES.ADDRESS_MUST_BE_STRING
+        },
+        matches: {
+          options: /^0x[a-fA-F0-9]{64}$/,
+          errorMessage: AUTH_MESSAGES.INVALID_ADDRESS_FORMAT
+        }
+      }
+    },
+    ['query']
+  )
+)
 
-          try {
-            const decodedAuthorization = await verifyAccessToken(access_token, req as Request)
-
-            // Verify issuer still exists and is active
-            const issuer = await databaseServices.issuers.findOne({ _id: decodedAuthorization.issuerId })
-            if (!issuer) {
-              throw new ErrorWithStatus({
-                message: AUTH_MESSAGES.USER_NOT_FOUND,
-                status: httpStatusCode.UNAUTHORIZED
-              })
+export const accessTokenValidation = wrapRequestHandler(
+  validate(
+    checkSchema({
+      authorization: {
+        trim: true,
+        custom: {
+          options: async (value: string, { req }) => {
+            if (!value) {
+              throw new Error(AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED)
+            }
+            const accessToken = value.split(' ')[1]
+            if (!accessToken) {
+              throw new Error(AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED)
             }
 
-            // If token has accountId, verify account exists and is linked to issuer
-            if (decodedAuthorization.accountId) {
-              const account = await databaseServices.accounts.findOne({
-                _id: decodedAuthorization.accountId,
-                issuerId: decodedAuthorization.issuerId
+            try {
+              const decodedAuthorization = await verifyAccessToken(accessToken, req as Request)
+
+              const issuer = await databaseServices.issuers.findOne({
+                _id: new ObjectId(decodedAuthorization.issuerId)
               })
-              if (!account) {
+              if (!issuer) {
                 throw new ErrorWithStatus({
                   message: AUTH_MESSAGES.USER_NOT_FOUND,
                   status: httpStatusCode.UNAUTHORIZED
                 })
               }
+
+              req.decodedAuthorization = decodedAuthorization
+            } catch (error) {
+              if (error instanceof JsonWebTokenError) {
+                throw new ErrorWithStatus({
+                  message: error.message,
+                  status: httpStatusCode.UNAUTHORIZED
+                })
+              }
+              throw error
             }
 
-            req.decodedAuthorization = decodedAuthorization
-          } catch (error) {
-            if (error instanceof JsonWebTokenError) {
-              throw new ErrorWithStatus({
-                message: error.message,
-                status: httpStatusCode.UNAUTHORIZED
-              })
+            return true
+          }
+        }
+      }
+    })
+  )
+)
+
+export const refreshTokenValidation = wrapRequestHandler(
+  validate(
+    checkSchema({
+      refreshToken: {
+        trim: true,
+        custom: {
+          options: async (value: string, { req }) => {
+            if (!value) {
+              throw new Error(AUTH_MESSAGES.REFRESH_TOKEN_IS_REQUIRED)
             }
-            throw error
+
+            try {
+              const decodedRefreshToken = await verifyRefreshToken(value, req as Request)
+
+              const issuer = await databaseServices.issuers.findOne({
+                _id: new ObjectId(decodedRefreshToken.issuerId)
+              })
+
+              if (!issuer) {
+                throw new ErrorWithStatus({
+                  message: AUTH_MESSAGES.USER_NOT_FOUND,
+                  status: httpStatusCode.UNAUTHORIZED
+                })
+              }
+
+              req.decodedRefreshToken = decodedRefreshToken
+            } catch (error) {
+              if (error instanceof JsonWebTokenError) {
+                throw new ErrorWithStatus({
+                  message: error.message,
+                  status: httpStatusCode.UNAUTHORIZED
+                })
+              }
+              throw error
+            }
+            return true
+          }
+        }
+      }
+    })
+  )
+)
+
+export const walletLoginValidation = validate(
+  checkSchema({
+    address: {
+      notEmpty: {
+        errorMessage: AUTH_MESSAGES.ADDRESS_REQUIRED
+      },
+      isString: {
+        errorMessage: AUTH_MESSAGES.ADDRESS_MUST_BE_STRING
+      },
+      matches: {
+        options: /^0x[a-fA-F0-9]{64}$/,
+        errorMessage: AUTH_MESSAGES.INVALID_ADDRESS_FORMAT
+      }
+    },
+    publicKey: {
+      notEmpty: {
+        errorMessage: 'Public key is required'
+      },
+      isString: {
+        errorMessage: 'Public key must be a string'
+      }
+    },
+    signature: {
+      notEmpty: {
+        errorMessage: AUTH_MESSAGES.SIGNATURE_REQUIRED
+      },
+      custom: {
+        options: (value) => {
+          if (!value || typeof value !== 'object') {
+            throw new Error(AUTH_MESSAGES.INVALID_SIGNATURE_FORMAT)
           }
 
           return true
         }
       }
-    }
-  })
-)
-
-export const refreshTokenValidation = validate(
-  checkSchema({
-    refreshToken: {
-      trim: true,
+    },
+    message: {
+      notEmpty: {
+        errorMessage: AUTH_MESSAGES.MESSAGE_REQUIRED
+      },
+      isString: {
+        errorMessage: AUTH_MESSAGES.MESSAGE_MUST_BE_STRING
+      },
       custom: {
-        options: async (value: string, { req }) => {
-          if (!value) {
-            throw new ErrorWithStatus({
-              message: AUTH_MESSAGES.REFRESH_TOKEN_IS_REQUIRED,
-              status: httpStatusCode.UNAUTHORIZED
-            })
-          }
-
+        options: (value: string, { req }) => {
           try {
-            const decodedRefreshToken = await verifyRefreshToken(value, req as Request)
+            const messageData = typeof value === 'string' ? JSON.parse(value) : value
 
-            // Verify issuer still exists and is active
-            const issuer = await databaseServices.issuers.findOne({ _id: decodedRefreshToken.issuerId })
-            if (!issuer) {
-              throw new ErrorWithStatus({
-                message: AUTH_MESSAGES.USER_NOT_FOUND,
-                status: httpStatusCode.UNAUTHORIZED
-              })
+            if (!messageData.nonce || !messageData.address || !messageData.timestamp || !messageData.domain) {
+              throw new Error(AUTH_MESSAGES.INVALID_MESSAGE_FORMAT)
             }
 
-            // If token has accountId, verify account exists and is linked to issuer
-            if (decodedRefreshToken.accountId) {
-              const account = await databaseServices.accounts.findOne({
-                _id: decodedRefreshToken.accountId,
-                issuerId: decodedRefreshToken.issuerId
-              })
-              if (!account) {
-                throw new ErrorWithStatus({
-                  message: AUTH_MESSAGES.USER_NOT_FOUND,
-                  status: httpStatusCode.UNAUTHORIZED
-                })
-              }
+            const now = Date.now()
+            if (messageData.timestamp > now) {
+              throw new Error(AUTH_MESSAGES.FUTURE_TIMESTAMP)
+            }
+            if (now - messageData.timestamp > MAX_SIGNATURE_AGE) {
+              throw new Error(AUTH_MESSAGES.SIGNATURE_EXPIRED)
             }
 
-            req.decodedRefreshToken = decodedRefreshToken
+            if (messageData.address.toLowerCase() !== req.body.address.toLowerCase()) {
+              throw new Error(AUTH_MESSAGES.ADDRESS_MISMATCH)
+            }
+
+            return true
           } catch (error) {
-            if (error instanceof JsonWebTokenError) {
-              throw new ErrorWithStatus({
-                message: error.message,
-                status: httpStatusCode.UNAUTHORIZED
-              })
-            }
-            throw error
+            logger.error('Error parsing message', 'AuthMiddleware.walletLoginValidation', '', { error })
+            throw new Error(AUTH_MESSAGES.INVALID_MESSAGE_FORMAT)
           }
-          return true
         }
       }
     }

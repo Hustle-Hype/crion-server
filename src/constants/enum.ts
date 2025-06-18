@@ -9,8 +9,9 @@ export enum ProviderType {
 export enum NetworkType {
   ETHEREUM = 'ethereum',
   POLYGON = 'polygon',
-  BSC = 'bsc'
-  // Add more networks as needed
+  BSC = 'bsc',
+  SOLANA = 'solana',
+  APTOS = 'aptos'
 }
 
 export enum IssuerStatus {
