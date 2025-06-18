@@ -2,10 +2,10 @@
 
 import { Collection, Db, MongoClient } from 'mongodb'
 import { envConfig } from '~/config/config'
-import { IAccount } from '~/models/schemas/account.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
 import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 import { IScores } from '~/models/schemas/scores.schema'
+import { ISocialLink } from '~/models/schemas/socialLink.schema'
 import { IToken } from '~/models/schemas/token.schema'
 
 const uri = `${envConfig.mongodbUri}`
@@ -46,8 +46,8 @@ class DatabaseServices {
     return this.db.collection(envConfig.dbScoreHistoriesCollection)
   }
 
-  get accounts(): Collection<IAccount> {
-    return this.db.collection(envConfig.dbAccountCollection)
+  get socialLinks(): Collection<ISocialLink> {
+    return this.db.collection(envConfig.dbSocialLinksCollection)
   }
 
   get tokens(): Collection<IToken> {
