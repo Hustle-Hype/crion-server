@@ -4,9 +4,9 @@ import databaseServices from './database.services'
 import { ErrorWithStatus } from '~/utils/error.utils'
 import { httpStatusCode } from '~/core/httpStatusCode'
 import { AUTH_MESSAGES } from '~/constants/messages'
-import { createAccount, IAccount } from '~/models/schemas/account.schema'
 import { logger } from '~/loggers/my-logger.log'
 import scoresService from './scores.service'
+import { createSocialLink, ISocialLink } from '~/models/schemas/socialLink.schema'
 
 interface SocialProfile {
   id: string
@@ -33,7 +33,7 @@ class IssuerService {
     }
 
     // Check if this social account is already linked to any issuer
-    const existingAccount = await databaseServices.accounts.findOne({
+    const existingAccount = await databaseServices.socialLinks.findOne({
       provider,
       providerAccountId: profile.id
     })
@@ -46,7 +46,7 @@ class IssuerService {
     }
 
     // Create new social account
-    const newAccount = createAccount(issuerId, {
+    const newAccount = createSocialLink(issuerId, {
       provider,
       providerAccountId: profile.id,
       metadata: {
@@ -71,7 +71,7 @@ class IssuerService {
     }
 
     await Promise.all([
-      databaseServices.accounts.insertOne(newAccount as IAccount),
+      databaseServices.socialLinks.insertOne(newAccount as ISocialLink),
       databaseServices.issuers.updateOne(
         { _id: issuerId },
         {
@@ -102,7 +102,7 @@ class IssuerService {
 
     // Remove social link and account
     await Promise.all([
-      databaseServices.accounts.deleteOne({ issuerId, provider }),
+      databaseServices.socialLinks.deleteOne({ issuerId, provider }),
       databaseServices.issuers.updateOne(
         { _id: issuerId },
         {

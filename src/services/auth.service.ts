@@ -1,7 +1,6 @@
 import { ObjectId } from 'mongodb'
 import { TokenType, TokenStatus, createToken } from '~/models/schemas/token.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
-import { IAccount, createAccount } from '~/models/schemas/account.schema'
 import { ProviderType } from '~/constants/enum'
 import databaseServices from './database.services'
 import { createIssuer } from '~/models/schemas/issuer.schema'
@@ -18,6 +17,8 @@ import { envConfig } from '~/config/config'
 import { WalletLoginRequest, AptosSignature } from '~/models/requests/login.request'
 import { logAuthEvent } from '~/loggers/auth.logger'
 import { Aptos, Network, AptosConfig, Ed25519PublicKey, Ed25519Signature } from '@aptos-labs/ts-sdk'
+import { createSocialLink, ISocialLink } from '~/models/schemas/socialLink.schema'
+import { createDefaultScoreStructure, IScores } from '~/models/schemas/scores.schema'
 
 interface JWTSignature {
   signature: {
@@ -49,7 +50,7 @@ type SocialProvider = Extract<
 
 export interface AuthResult {
   issuer: IIssuer
-  account: IAccount
+  account: ISocialLink
   accessToken: string
   refreshToken: string
 }
@@ -86,8 +87,8 @@ class AuthService {
   private async findOrCreateIssuerAndAccount(
     profile: any, // eslint-disable-line @typescript-eslint/no-explicit-any
     provider: SocialProvider
-  ): Promise<{ issuer: IIssuer; account: IAccount; isNew: boolean }> {
-    const existingAccount = await databaseServices.accounts.findOne({
+  ): Promise<{ issuer: IIssuer; account: ISocialLink; isNew: boolean }> {
+    const existingAccount = await databaseServices.socialLinks.findOne({
       provider,
       providerAccountId: profile.id
     })
@@ -124,7 +125,7 @@ class AuthService {
       await this.updateSocialScore(issuer._id)
     }
 
-    const newAccount = createAccount(issuer._id, {
+    const newAccount = createSocialLink(issuer._id, {
       provider,
       providerAccountId: profile.id,
       metadata: {
@@ -139,8 +140,8 @@ class AuthService {
       issuerId: issuer._id.toString()
     })
 
-    const accountResult = await databaseServices.accounts.insertOne(newAccount as IAccount)
-    const account = { ...newAccount, _id: accountResult.insertedId } as IAccount
+    const accountResult = await databaseServices.socialLinks.insertOne(newAccount as ISocialLink)
+    const account = { ...newAccount, _id: accountResult.insertedId } as ISocialLink
 
     return { issuer, account, isNew: true }
   }
@@ -489,17 +490,24 @@ class AuthService {
     }
   }
 
-  private async findOrCreateIssuer(address: string): Promise<IIssuer> {
+  private async findOrCreateIssuer(address: string): Promise<{ issuer: IIssuer; score: number }> {
     const normalizedAddress = address.toLowerCase()
     let issuer = await databaseServices.issuers.findOne({ primaryWallet: normalizedAddress })
 
     if (!issuer) {
       const newIssuer = createIssuer({ primaryWallet: normalizedAddress })
-      const result = await databaseServices.issuers.insertOne(newIssuer as unknown as IIssuer)
+      const result = await databaseServices.issuers.insertOne(newIssuer as IIssuer)
       issuer = { ...newIssuer, _id: result.insertedId }
+
+      await databaseServices.scores.insertOne(createDefaultScoreStructure(issuer._id) as IScores)
     }
 
-    return issuer
+    const score = await databaseServices.scores.findOne({ issuerId: issuer._id })
+
+    return {
+      issuer,
+      score: score?.totalScore || 0
+    }
   }
 
   async handleWalletLogin(data: WalletLoginRequest, req: Request): Promise<WalletLoginResponse> {
@@ -550,7 +558,7 @@ class AuthService {
         // Clean up nonce after successful validation
         this.nonceMap.delete(normalizedAddress)
 
-        const issuer = await this.findOrCreateIssuer(normalizedAddress)
+        const { issuer, score } = await this.findOrCreateIssuer(normalizedAddress)
 
         // Revoke all active tokens before generating new ones
         await this.revokeAllActiveTokens(issuer._id)
@@ -576,7 +584,15 @@ class AuthService {
           user: {
             id: issuer._id.toString(),
             address: normalizedAddress,
-            score: issuer.stakedAmount || 0,
+            bio: issuer.bio || '',
+            avatar: issuer.avatar || '',
+            stakedAmount: issuer.stakedAmount,
+            score: score,
+            website: issuer.website || '',
+            walletLinks: issuer.walletLinks.map((link) => ({
+              network: link.network,
+              address: link.address
+            })),
             socialLinks: issuer.socialLinks.map((link) => ({
               provider: link.provider,
               providerId: link.socialId
