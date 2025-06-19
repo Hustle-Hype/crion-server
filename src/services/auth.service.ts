@@ -75,11 +75,6 @@ class AuthService {
     }
 
     await this.revokeTokenById(tokenDoc._id)
-    logAuthEvent({
-      userId: tokenDoc.issuerId.toString(),
-      event: 'token_revoked',
-      metadata: { token, type }
-    })
   }
 
   private async revokeTokenById(tokenId: ObjectId): Promise<void> {
