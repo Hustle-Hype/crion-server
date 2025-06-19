@@ -8,7 +8,7 @@ const issuerRouter = Router()
 
 issuerRouter.get(
   '/me/link/google',
-  accessTokenValidation, // bắt buộc user đã login ví
+  // accessTokenValidation,
   passport.authenticate('google', {
     scope: ['profile', 'email'],
     session: false
@@ -17,10 +17,10 @@ issuerRouter.get(
 
 issuerRouter.get(
   '/me/link/google/callback',
-  accessTokenValidation, // vẫn cần xác thực lại, phòng trường hợp callback bị abuse
+  accessTokenValidation,
   passport.authenticate('google', {
     session: false,
-    failureRedirect: '/profile' // hoặc báo lỗi frontend
+    failureRedirect: '/'
   }),
   issuerController.handleSocialLinkCallback
 )
@@ -35,9 +35,10 @@ issuerRouter.get(
 
 issuerRouter.get(
   '/me/link/twitter/callback',
+  accessTokenValidation,
   passport.authenticate('twitter', {
     session: false,
-    failureRedirect: '/profile'
+    failureRedirect: '/'
   }),
   issuerController.handleSocialLinkCallback
 )

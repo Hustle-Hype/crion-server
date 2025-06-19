@@ -32,7 +32,6 @@ class IssuerService {
       })
     }
 
-    // Check if this social account is already linked to any issuer
     const existingAccount = await databaseServices.socialLinks.findOne({
       provider,
       providerAccountId: profile.id
@@ -45,8 +44,7 @@ class IssuerService {
       })
     }
 
-    // Create new social account
-    const newAccount = createSocialLink(issuerId, {
+    const newSocialLink = createSocialLink(issuerId, {
       provider,
       providerAccountId: profile.id,
       metadata: {
@@ -58,7 +56,6 @@ class IssuerService {
       }
     })
 
-    // Add social link to issuer
     const socialLink = {
       provider,
       socialId: profile.id,
@@ -71,7 +68,7 @@ class IssuerService {
     }
 
     await Promise.all([
-      databaseServices.socialLinks.insertOne(newAccount as ISocialLink),
+      databaseServices.socialLinks.insertOne(newSocialLink as ISocialLink),
       databaseServices.issuers.updateOne(
         { _id: issuerId },
         {
@@ -81,7 +78,7 @@ class IssuerService {
       )
     ])
 
-    // Add scores for linking social account
+    await scoresService.addSocialScore(issuerId, provider)
     await scoresService.calculateAndUpdateScores(issuerId)
 
     logger.info('Social account linked successfully', 'IssuerService.linkSocialAccount', '', {
@@ -100,7 +97,6 @@ class IssuerService {
       })
     }
 
-    // Remove social link and account
     await Promise.all([
       databaseServices.socialLinks.deleteOne({ issuerId, provider }),
       databaseServices.issuers.updateOne(
@@ -112,7 +108,6 @@ class IssuerService {
       )
     ])
 
-    // Recalculate scores after unlinking
     await scoresService.calculateAndUpdateScores(issuerId)
 
     logger.info('Social account unlinked successfully', 'IssuerService.unlinkSocialAccount', '', {

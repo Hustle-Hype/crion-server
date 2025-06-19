@@ -11,21 +11,12 @@ import { OK } from '~/core/succes.response'
 class IssuerController {
   async handleSocialLinkCallback(req: Request, res: Response, next: NextFunction) {
     try {
-      const { decodedAuthorization } = req
-      const profile = req.user
-
-      if (!decodedAuthorization || !profile) {
+      if (!req.user) {
         throw new ErrorWithStatus({
           message: AUTH_MESSAGES.UNAUTHORIZED,
           status: httpStatusCode.UNAUTHORIZED
         })
       }
-
-      await issuerService.linkSocialAccount(
-        new ObjectId(decodedAuthorization.issuerId),
-        profile as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-        profile.provider as Exclude<ProviderType, ProviderType.WALLET>
-      )
 
       new OK({
         message: AUTH_MESSAGES.SOCIAL_LINK_SUCCESS

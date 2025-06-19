@@ -1,20 +1,19 @@
 import { ObjectId } from 'mongodb'
 import databaseServices from '~/services/database.services'
-import { IScores } from '~/models/schemas/scores.schema'
-import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
-import { BehaviorFlag, IIssuer, KYCStatus, SocialLinkSubDocument } from '~/models/schemas/issuer.schema'
+import { IScores, IScoreSubDocument } from '~/models/schemas/scores.schema'
+import { BehaviorFlag, KYCStatus, SocialLinkSubDocument } from '~/models/schemas/issuer.schema'
 import {
   scoreWeightsConfig,
-  SOCIAL_SCORE_WEIGHTS,
-  TIER_THRESHOLDS,
-  TierType,
   SCORE_CATEGORIES,
   DETAILED_SCORE_WEIGHTS,
-  SCORE_HISTORY_SOURCES
+  SCORE_HISTORY_SOURCES,
+  SCORE_WEIGHTS,
+  SOCIAL_SCORES,
+  SCORE_TIERS
 } from '~/constants/scores'
-import { httpStatusCode } from '~/core/httpStatusCode'
-import { ErrorWithStatus } from '~/utils/error.utils'
 import { ProviderType } from '~/constants/enum'
+import { logger } from '~/loggers/my-logger.log'
+import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 
 interface ScoreValue {
   score: number
@@ -29,10 +28,10 @@ const getScoreValue = (result: ScoreResult): number => {
 }
 
 class ScoresService {
-  private calculateTier(totalScore: number): TierType {
-    for (const [tier, threshold] of Object.entries(TIER_THRESHOLDS)) {
-      if (totalScore >= threshold) {
-        return tier as TierType
+  private calculateTier(totalScore: number): IScores['tier'] {
+    for (const [tier, range] of Object.entries(SCORE_TIERS)) {
+      if (totalScore >= range.min && totalScore <= range.max) {
+        return tier as IScores['tier']
       }
     }
     return 'new_issuer'
@@ -106,7 +105,7 @@ class ScoresService {
 
     // Calculate total score from verified social accounts
     const totalScore = socialLinks.reduce((sum, link) => {
-      const score = SOCIAL_SCORE_WEIGHTS[link.provider as keyof typeof SOCIAL_SCORE_WEIGHTS] || 0
+      const score = SOCIAL_SCORES[link.provider as keyof typeof SOCIAL_SCORES] || 0
       return sum + score
     }, 0)
 
@@ -195,7 +194,7 @@ class ScoresService {
     issuerId: ObjectId,
     scores: Record<string, ScoreResult>,
     totalScore: number,
-    tier: TierType
+    tier: IScores['tier']
   ): IScoreHistory {
     return {
       _id: new ObjectId(),
@@ -214,116 +213,145 @@ class ScoresService {
     }
   }
 
-  async calculateAndUpdateScores(issuerId: ObjectId): Promise<IScores> {
-    const session = await databaseServices.getClient().startSession()
+  async calculateAndUpdateScores(issuerId: ObjectId): Promise<void> {
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.calculateAndUpdateScores', '', {
+        issuerId: issuerId.toString()
+      })
+      return
+    }
 
-    try {
-      session.startTransaction()
+    // Calculate total score using SCORE_WEIGHTS
+    const totalScore = Object.entries(currentScores.scores).reduce((acc, [key, value]) => {
+      const weight = SCORE_WEIGHTS[key as keyof typeof SCORE_WEIGHTS] || 0
+      return acc + value * weight
+    }, 0)
 
-      // Get issuer data
-      const issuer = (await databaseServices.issuers.findOne({ _id: issuerId }, { session })) as IIssuer
+    // Calculate tier based on SCORE_TIERS
+    const tier = this.calculateTier(totalScore)
 
-      if (!issuer) {
-        throw new ErrorWithStatus({
-          message: 'Issuer not found',
-          status: httpStatusCode.NOT_FOUND
-        })
-      }
+    // Create score history entry for recalculation
+    const scoreHistory: IScoreHistory = {
+      _id: new ObjectId(),
+      issuerId,
+      scores: Object.entries(currentScores.scores).map(([key, value]) => {
+        const weight = SCORE_WEIGHTS[key as keyof typeof SCORE_WEIGHTS] || 0
+        return {
+          key: SCORE_CATEGORIES[key.toUpperCase() as keyof typeof SCORE_CATEGORIES] || key,
+          raw: value,
+          weighted: value * weight,
+          note: `Score recalculation (weight: ${weight})`
+        }
+      }),
+      totalScore,
+      badge: tier,
+      recordedAt: new Date(),
+      version: 1,
+      source: SCORE_HISTORY_SOURCES.SYSTEM
+    }
 
-      // Calculate individual scores
-      const [launchScore, scores] = await Promise.all([
-        this.calculateLaunchScore(issuerId),
-        Promise.resolve({
-          staking: this.calculateStakingScore(issuer.stakedAmount),
-          walletBehavior: this.calculateWalletBehaviorScore(issuer.behaviorFlags),
-          social: this.calculateSocialScore(issuer.socialLinks),
-          kyc: this.calculateKYCScore(issuer.kycStatus),
-          launchHistory: 0
-        } as Record<string, ScoreResult>)
-      ])
-
-      scores.launchHistory = launchScore
-
-      // Calculate total score
-      const totalScore = Object.entries(scores).reduce((sum, [, value]) => sum + getScoreValue(value), 0)
-
-      const tier = this.calculateTier(totalScore)
-
-      // Create score history record
-      const scoreHistory = this.createScoreHistoryEntry(issuerId, scores, totalScore, tier)
-
-      // Update scores and history atomically
-      await Promise.all([
-        databaseServices.scores.updateOne(
-          { issuerId },
-          {
-            $set: {
-              scores: {
-                staking: getScoreValue(scores.staking),
-                walletBehavior: getScoreValue(scores.walletBehavior),
-                launchHistory: getScoreValue(scores.launchHistory),
-                social: getScoreValue(scores.social),
-                kyc: getScoreValue(scores.kyc)
-              },
-              totalScore,
-              tier,
-              updatedAt: new Date()
-            },
-            $setOnInsert: {
-              issuerId,
-              createdAt: new Date()
-            }
-          },
-          { upsert: true, session }
-        ),
-        databaseServices.scoreHistories.insertOne(scoreHistory, { session })
-      ])
-
-      // Update issuer's total score
-      await databaseServices.issuers.updateOne(
-        { _id: issuerId },
+    // Update scores and add history
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
         {
           $set: {
-            score: totalScore,
+            totalScore,
+            tier,
             updatedAt: new Date()
           }
-        },
-        { session }
-      )
+        }
+      ),
+      databaseServices.scoreHistories.insertOne(scoreHistory)
+    ])
 
-      await session.commitTransaction()
-
-      return {
-        _id: new ObjectId(),
-        issuerId,
-        scores: {
-          staking: getScoreValue(scores.staking),
-          walletBehavior: getScoreValue(scores.walletBehavior),
-          launchHistory: getScoreValue(scores.launchHistory),
-          social: getScoreValue(scores.social),
-          kyc: getScoreValue(scores.kyc)
-        },
-        totalScore,
-        tier,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    } catch (error) {
-      await session.abortTransaction()
-      throw error
-    } finally {
-      await session.endSession()
-    }
+    logger.info('Scores recalculated', 'ScoresService.calculateAndUpdateScores', '', {
+      issuerId: issuerId.toString(),
+      totalScore,
+      tier
+    })
   }
 
   async getProviderScore(provider: ProviderType): Promise<number> {
-    return SOCIAL_SCORE_WEIGHTS[provider as keyof typeof SOCIAL_SCORE_WEIGHTS] || 0
+    return SOCIAL_SCORES[provider as keyof typeof SOCIAL_SCORES] || 0
   }
 
-  // async getTotalScore(issuerId: ObjectId): Promise<number> {
-  //   const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
-  //   return issuer?.stakedAmount || 0
-  // }
+  async addSocialScore(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
+    const rawScore = SOCIAL_SCORES[provider] || 0
+
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.addSocialScore', '', { issuerId: issuerId.toString() })
+      return
+    }
+
+    // Calculate weighted score based on BASE_WEIGHT from DETAILED_SCORE_WEIGHTS
+    const { BASE_WEIGHT } = DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.SOCIAL]
+    const weightedScore = rawScore * BASE_WEIGHT
+
+    // Update social score (max 100)
+    const updatedSocialScore = Math.min(100, (currentScores.scores.social || 0) + weightedScore)
+    const updatedScores: IScoreSubDocument = {
+      ...currentScores.scores,
+      social: updatedSocialScore
+    }
+
+    // Calculate total score using SCORE_WEIGHTS
+    const totalScore = Object.entries(updatedScores).reduce((acc, [key, value]) => {
+      const weight = SCORE_WEIGHTS[key as keyof typeof SCORE_WEIGHTS] || 0
+      return acc + value * weight
+    }, 0)
+
+    // Calculate tier based on SCORE_TIERS
+    const tier = this.calculateTier(totalScore)
+
+    // Create score history entry
+    const scoreHistory: IScoreHistory = {
+      _id: new ObjectId(),
+      issuerId,
+      scores: [
+        {
+          key: `${SCORE_CATEGORIES.SOCIAL}:${provider}`,
+          raw: rawScore,
+          weighted: weightedScore,
+          note: `Added score for linking ${provider} account (base: ${rawScore}, weighted: ${weightedScore})`
+        }
+      ],
+      totalScore,
+      badge: tier,
+      recordedAt: new Date(),
+      version: 1,
+      source: SCORE_HISTORY_SOURCES.SYSTEM
+    }
+
+    // Update scores and add history
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
+        {
+          $set: {
+            scores: updatedScores,
+            totalScore,
+            tier,
+            updatedAt: new Date()
+          }
+        }
+      ),
+      databaseServices.scoreHistories.insertOne(scoreHistory)
+    ])
+
+    logger.info('Social score updated', 'ScoresService.addSocialScore', '', {
+      issuerId: issuerId.toString(),
+      provider,
+      rawScore,
+      weightedScore,
+      newTotalScore: totalScore,
+      newTier: tier
+    })
+  }
 }
 
 export default new ScoresService()
