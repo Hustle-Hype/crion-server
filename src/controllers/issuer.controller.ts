@@ -146,13 +146,6 @@ class IssuerController {
     return new Promise<void>((resolve, reject) => {
       passport.authenticate(provider, { session: false }, async (err: Error | null, profile: any) => {
         try {
-          console.log('Social callback executing', {
-            provider,
-            hasError: !!err,
-            hasProfile: !!profile,
-            query: req.query
-          })
-
           if (err || !profile) {
             throw new ErrorWithStatus({
               message: err?.message || AUTH_MESSAGES.UNAUTHORIZED,
@@ -238,12 +231,6 @@ class IssuerController {
 
   handleGoogleCallback = async (req: Request, res: Response) => {
     try {
-      console.log('Google callback received:', {
-        query: req.query,
-        state: req.query.state,
-        code: req.query.code
-      })
-
       await this.handleSocialCallback(req, res, ProviderType.GOOGLE)
     } catch (error) {
       console.error('Google callback error:', error)

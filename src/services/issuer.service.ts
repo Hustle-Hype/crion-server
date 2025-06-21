@@ -72,6 +72,8 @@ class IssuerService {
         })
       }
 
+      console.log('profile', profile)
+
       const newSocialLink = createSocialLink(issuerId, {
         provider,
         providerAccountId: profile.id,
@@ -107,7 +109,6 @@ class IssuerService {
       ])
 
       await scoresService.addSocialScore(issuerId, provider)
-      await scoresService.calculateAndUpdateScores(issuerId)
 
       logger.info('Social account linked successfully', 'IssuerService.linkSocialAccount', '', {
         issuerId: issuerId.toString(),
