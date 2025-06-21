@@ -1,49 +1,36 @@
 import { Router } from 'express'
-import passport from 'passport'
 import issuerController from '~/controllers/issuer.controller'
 import { wrapRequestHandler } from '~/utils/wrapHandler'
-import { accessTokenValidation } from '~/middlewares/auth.middlewares'
+import { accessTokenValidation, checkSocialLinkStatus } from '~/middlewares/auth.middlewares'
 
 const issuerRouter = Router()
 
+// Social link URLs
 issuerRouter.get(
   '/me/link/google',
-  // accessTokenValidation,
-  passport.authenticate('google', {
-    scope: ['profile', 'email'],
-    session: false
-  })
-)
-
-issuerRouter.get(
-  '/me/link/google/callback',
   accessTokenValidation,
-  passport.authenticate('google', {
-    session: false,
-    failureRedirect: '/'
-  }),
-  issuerController.handleSocialLinkCallback
+  checkSocialLinkStatus,
+  wrapRequestHandler(issuerController.handleGoogleLink)
 )
-
 issuerRouter.get(
   '/me/link/twitter',
   accessTokenValidation,
-  passport.authenticate('twitter', {
-    session: false
-  })
+  checkSocialLinkStatus,
+  wrapRequestHandler(issuerController.handleTwitterLink)
 )
-
 issuerRouter.get(
-  '/me/link/twitter/callback',
+  '/me/link/github',
   accessTokenValidation,
-  passport.authenticate('twitter', {
-    session: false,
-    failureRedirect: '/'
-  }),
-  issuerController.handleSocialLinkCallback
+  checkSocialLinkStatus,
+  wrapRequestHandler(issuerController.handleGithubLink)
 )
 
-// Unlink social account
+// Social link callbacks
+issuerRouter.get('/me/link/google/callback', wrapRequestHandler(issuerController.handleGoogleCallback))
+issuerRouter.get('/me/link/twitter/callback', wrapRequestHandler(issuerController.handleTwitterCallback))
+issuerRouter.get('/me/link/github/callback', wrapRequestHandler(issuerController.handleGithubCallback))
+
+// Unlink endpoint
 issuerRouter.post(
   '/me/unlink/:provider',
   accessTokenValidation,

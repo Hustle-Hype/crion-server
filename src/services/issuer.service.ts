@@ -24,68 +24,105 @@ class IssuerService {
     profile: SocialProfile,
     provider: Exclude<ProviderType, ProviderType.WALLET>
   ): Promise<void> {
-    const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
-    if (!issuer) {
-      throw new ErrorWithStatus({
-        message: AUTH_MESSAGES.USER_NOT_FOUND,
-        status: httpStatusCode.NOT_FOUND
+    try {
+      console.log('Linking social account:', {
+        issuerId: issuerId.toString(),
+        provider,
+        profileId: profile.id
       })
-    }
 
-    const existingAccount = await databaseServices.socialLinks.findOne({
-      provider,
-      providerAccountId: profile.id
-    })
+      const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
+      if (!issuer) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.USER_NOT_FOUND,
+          status: httpStatusCode.NOT_FOUND
+        })
+      }
 
-    if (existingAccount) {
-      throw new ErrorWithStatus({
-        message: AUTH_MESSAGES.SOCIAL_ACCOUNT_ALREADY_LINKED,
-        status: httpStatusCode.CONFLICT
+      // Check if this social account is already linked to any user
+      const existingAccount = await databaseServices.socialLinks.findOne({
+        provider,
+        providerAccountId: profile.id
       })
-    }
 
-    const newSocialLink = createSocialLink(issuerId, {
-      provider,
-      providerAccountId: profile.id,
-      metadata: {
+      if (existingAccount) {
+        if (existingAccount.issuerId.toString() === issuerId.toString()) {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.SOCIAL_ACCOUNT_ALREADY_LINKED_TO_YOU,
+            status: httpStatusCode.CONFLICT
+          })
+        } else {
+          throw new ErrorWithStatus({
+            message: AUTH_MESSAGES.SOCIAL_ACCOUNT_ALREADY_LINKED_TO_OTHER,
+            status: httpStatusCode.CONFLICT
+          })
+        }
+      }
+
+      // Check if user already has a link for this provider
+      const existingProviderLink = await databaseServices.socialLinks.findOne({
+        issuerId,
+        provider
+      })
+
+      if (existingProviderLink) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.PROVIDER_ALREADY_LINKED,
+          status: httpStatusCode.CONFLICT
+        })
+      }
+
+      const newSocialLink = createSocialLink(issuerId, {
+        provider,
+        providerAccountId: profile.id,
+        metadata: {
+          email: profile.emails?.[0]?.value,
+          username: profile.username,
+          displayName: profile.displayName,
+          profileUrl: profile.profileUrl,
+          avatarUrl: profile.photos?.[0]?.value
+        }
+      })
+
+      const socialLink = {
+        provider,
+        socialId: profile.id,
         email: profile.emails?.[0]?.value,
         username: profile.username,
         displayName: profile.displayName,
         profileUrl: profile.profileUrl,
-        avatarUrl: profile.photos?.[0]?.value
+        verifiedAt: new Date(),
+        score: 0 // Will be updated by scores service
       }
-    })
 
-    const socialLink = {
-      provider,
-      socialId: profile.id,
-      email: profile.emails?.[0]?.value,
-      username: profile.username,
-      displayName: profile.displayName,
-      profileUrl: profile.profileUrl,
-      verifiedAt: new Date(),
-      score: 0 // Will be updated by scores service
+      await Promise.all([
+        databaseServices.socialLinks.insertOne(newSocialLink as ISocialLink),
+        databaseServices.issuers.updateOne(
+          { _id: issuerId },
+          {
+            $push: { socialLinks: socialLink },
+            $set: { updatedAt: new Date() }
+          }
+        )
+      ])
+
+      await scoresService.addSocialScore(issuerId, provider)
+      await scoresService.calculateAndUpdateScores(issuerId)
+
+      logger.info('Social account linked successfully', 'IssuerService.linkSocialAccount', '', {
+        issuerId: issuerId.toString(),
+        provider,
+        socialId: profile.id
+      })
+    } catch (error) {
+      logger.error('Error linking social account', 'IssuerService.linkSocialAccount', '', {
+        issuerId: issuerId.toString(),
+        provider,
+        profileId: profile.id,
+        error
+      })
+      throw error
     }
-
-    await Promise.all([
-      databaseServices.socialLinks.insertOne(newSocialLink as ISocialLink),
-      databaseServices.issuers.updateOne(
-        { _id: issuerId },
-        {
-          $push: { socialLinks: socialLink },
-          $set: { updatedAt: new Date() }
-        }
-      )
-    ])
-
-    await scoresService.addSocialScore(issuerId, provider)
-    await scoresService.calculateAndUpdateScores(issuerId)
-
-    logger.info('Social account linked successfully', 'IssuerService.linkSocialAccount', '', {
-      issuerId: issuerId.toString(),
-      provider,
-      socialId: profile.id
-    })
   }
 
   async unlinkSocialAccount(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
