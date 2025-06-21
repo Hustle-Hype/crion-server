@@ -132,7 +132,7 @@ export const checkSocialLinkStatus = wrapRequestHandler(async (req: Request, res
 
     if (existingLink) {
       return res.status(httpStatusCode.OK).json({
-        message: AUTH_MESSAGES.PROVIDER_ALREADY_LINKED,
+        message: AUTH_MESSAGES.SOCIAL_ACCOUNT_ALREADY_LINKED_TO_YOU,
         data: {
           provider,
           isLinked: true
