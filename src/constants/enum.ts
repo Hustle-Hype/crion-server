@@ -1,8 +1,9 @@
 export enum ProviderType {
   GOOGLE = 'google',
-  X = 'x',
+  X = 'twitter',
   LINKEDIN = 'linkedin',
   TELEGRAM = 'telegram',
+  GITHUB = 'github',
   WALLET = 'wallet'
 }
 

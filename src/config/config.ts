@@ -86,5 +86,11 @@ export const envConfig = {
   dbScoresCollection: process.env.DB_SCORES_COLLECTION as string,
   dbScoreHistoriesCollection: process.env.DB_SCORE_HISTORIES_COLLECTION as string,
   dbSocialLinksCollection: process.env.DB_SOCIAL_LINKS_COLLECTION as string,
-  dbTokenCollection: process.env.DB_TOKEN_COLLECTION as string
+  dbTokenCollection: process.env.DB_TOKEN_COLLECTION as string,
+
+  // Github config
+  githubClientId: process.env.GITHUB_CLIENT_ID as string,
+  githubClientSecret: process.env.GITHUB_CLIENT_SECRET as string,
+  githubCallbackURLDev: process.env.GITHUB_CALLBACK_URL_DEV as string,
+  githubCallbackURLProd: process.env.GITHUB_CALLBACK_URL_PROD as string
 } as const
