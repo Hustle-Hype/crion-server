@@ -58,8 +58,8 @@ export interface IIssuer {
   _id: ObjectId
   primaryWallet: string
   name: string
+  bio: string
   avatar?: string
-  bio?: string
   stakedAmount: number
   website?: string
   socialLinks: SocialLinkSubDocument[]
@@ -82,6 +82,7 @@ export function createIssuer(params: { primaryWallet: string; name?: string; ava
   return {
     primaryWallet: params.primaryWallet,
     name: params.name || params.primaryWallet.slice(0, 6),
+    bio: '',
     avatar: params.avatar,
     stakedAmount: 0,
     socialLinks: [],

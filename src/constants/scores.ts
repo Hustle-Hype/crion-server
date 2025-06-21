@@ -17,29 +17,6 @@ export const scoreWeightsConfig = {
   kyc: process.env.KYC_WEIGHT as number | StringValue
 }
 
-type SocialProvider = Extract<
-  ProviderType,
-  ProviderType.GOOGLE | ProviderType.X | ProviderType.LINKEDIN | ProviderType.TELEGRAM
->
-
-export const SOCIAL_SCORE_WEIGHTS: Record<SocialProvider, number> = {
-  [ProviderType.GOOGLE]: 1,
-  [ProviderType.X]: 1.5,
-  [ProviderType.LINKEDIN]: 2,
-  [ProviderType.TELEGRAM]: 1
-}
-
-export const TIER_THRESHOLDS = {
-  platinum: 90,
-  gold: 80,
-  silver: 70,
-  bronze: 60,
-  new_issuer: 0
-} as const
-
-export type TierType = keyof typeof TIER_THRESHOLDS
-
-// Score history source types
 export const SCORE_HISTORY_SOURCES = {
   SYSTEM: 'system',
   MANUAL: 'manual',
@@ -49,7 +26,6 @@ export const SCORE_HISTORY_SOURCES = {
 
 export type ScoreHistorySource = (typeof SCORE_HISTORY_SOURCES)[keyof typeof SCORE_HISTORY_SOURCES]
 
-// Score categories for history tracking
 export const SCORE_CATEGORIES = {
   SOCIAL: 'social',
   STAKING: 'staking',
@@ -60,7 +36,6 @@ export const SCORE_CATEGORIES = {
 
 export type ScoreCategory = (typeof SCORE_CATEGORIES)[keyof typeof SCORE_CATEGORIES]
 
-// Detailed score weights for each category
 export const DETAILED_SCORE_WEIGHTS = {
   [SCORE_CATEGORIES.SOCIAL]: {
     BASE_WEIGHT: 0.7, // 70% of total social score
@@ -90,3 +65,41 @@ export const DETAILED_SCORE_WEIGHTS = {
     EXPIRATION_PENALTY: 0.2 // 20% reduction when close to expiration
   }
 }
+
+export const SOCIAL_SCORES = {
+  [ProviderType.GOOGLE]: 1,
+  [ProviderType.X]: 1.5,
+  [ProviderType.LINKEDIN]: 2,
+  [ProviderType.TELEGRAM]: 1
+} as const
+
+export const SCORE_WEIGHTS = {
+  staking: 0.3,
+  walletBehavior: 0.2,
+  launchHistory: 0.2,
+  social: 0.2,
+  kyc: 0.1
+} as const
+
+export const SCORE_TIERS = {
+  new_issuer: {
+    min: 0,
+    max: 20
+  },
+  bronze: {
+    min: 21,
+    max: 40
+  },
+  silver: {
+    min: 41,
+    max: 60
+  },
+  gold: {
+    min: 61,
+    max: 80
+  },
+  platinum: {
+    min: 81,
+    max: 100
+  }
+} as const

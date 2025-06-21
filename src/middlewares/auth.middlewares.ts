@@ -1,16 +1,20 @@
 import { checkSchema } from 'express-validator'
 import { validate } from '~/utils/validation.utils'
-import { verifyAccessToken, verifyRefreshToken } from '~/utils/jwt.utils'
+import { verifyRefreshToken, verifyToken } from '~/utils/jwt.utils'
 import { JsonWebTokenError } from 'jsonwebtoken'
 import { ErrorWithStatus } from '~/utils/error.utils'
 import databaseServices from '~/services/database.services'
 import { httpStatusCode } from '~/core/httpStatusCode'
-import { Request } from 'express'
+import { Request, Response, NextFunction } from 'express'
 import { AUTH_MESSAGES } from '~/constants/messages'
 import { MAX_SIGNATURE_AGE } from '~/models/requests/login.request'
 import { logger } from '~/loggers/my-logger.log'
 import { wrapRequestHandler } from '~/utils/wrapHandler'
 import { ObjectId } from 'mongodb'
+import { TokenType } from '~/models/schemas/token.schema'
+import { ProviderType } from '~/constants/enum'
+
+type SocialProvider = Exclude<ProviderType, ProviderType.WALLET>
 
 export const nonceValidation = validate(
   checkSchema(
@@ -32,52 +36,116 @@ export const nonceValidation = validate(
   )
 )
 
-export const accessTokenValidation = wrapRequestHandler(
-  validate(
-    checkSchema({
-      authorization: {
-        trim: true,
-        custom: {
-          options: async (value: string, { req }) => {
-            if (!value) {
-              throw new Error(AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED)
-            }
-            const accessToken = value.split(' ')[1]
-            if (!accessToken) {
-              throw new Error(AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED)
-            }
+export const accessTokenValidation = wrapRequestHandler(async (req: Request, res: Response, next: NextFunction) => {
+  let token: string | undefined
 
-            try {
-              const decodedAuthorization = await verifyAccessToken(accessToken, req as Request)
+  // Check Authorization header first
+  const authorization = req.headers.authorization
+  if (authorization) {
+    const [tokenType, authToken] = authorization.split(' ')
+    if (tokenType === 'Bearer' && authToken) {
+      token = authToken
+      console.log('token', token)
+    }
+  }
 
-              const issuer = await databaseServices.issuers.findOne({
-                _id: new ObjectId(decodedAuthorization.issuerId)
-              })
-              if (!issuer) {
-                throw new ErrorWithStatus({
-                  message: AUTH_MESSAGES.USER_NOT_FOUND,
-                  status: httpStatusCode.UNAUTHORIZED
-                })
-              }
+  // If not in header, check query parameters
+  if (!token && req.query.accessToken) {
+    token = req.query.accessToken as string
+    // Add it to headers for passport to use
+    req.headers.authorization = `Bearer ${token}`
+  }
 
-              req.decodedAuthorization = decodedAuthorization
-            } catch (error) {
-              if (error instanceof JsonWebTokenError) {
-                throw new ErrorWithStatus({
-                  message: error.message,
-                  status: httpStatusCode.UNAUTHORIZED
-                })
-              }
-              throw error
-            }
+  // If still not found, check body
+  if (!token && req.body?.accessToken) {
+    token = req.body.accessToken
+    req.headers.authorization = `Bearer ${token}`
+  }
 
-            return true
-          }
-        }
-      }
+  if (!token) {
+    return next(
+      new ErrorWithStatus({
+        message: AUTH_MESSAGES.ACCESS_TOKEN_IS_REQUIRED,
+        status: httpStatusCode.UNAUTHORIZED
+      })
+    )
+  }
+
+  try {
+    const decodedAuthorization = await verifyToken({
+      token,
+      type: TokenType.AccessToken,
+      req
     })
-  )
-)
+
+    req.decodedAuthorization = decodedAuthorization
+    return next()
+  } catch (error) {
+    return next(error)
+  }
+})
+
+export const checkSocialLinkStatus = wrapRequestHandler(async (req: Request, res: Response, next: NextFunction) => {
+  const { decodedAuthorization } = req
+  if (!decodedAuthorization?.issuerId) {
+    return next(
+      new ErrorWithStatus({
+        message: AUTH_MESSAGES.UNAUTHORIZED,
+        status: httpStatusCode.UNAUTHORIZED
+      })
+    )
+  }
+
+  // Get provider from route path
+  const path = req.path
+  let provider: SocialProvider | null = null
+
+  // Map path to provider
+  const providerMap: Record<string, SocialProvider> = {
+    '/google': ProviderType.GOOGLE,
+    '/twitter': ProviderType.X,
+    '/github': ProviderType.GITHUB
+  }
+
+  // Find matching provider
+  for (const [key, value] of Object.entries(providerMap)) {
+    if (path.includes(key)) {
+      provider = value as SocialProvider
+      break
+    }
+  }
+
+  if (!provider) {
+    return next(
+      new ErrorWithStatus({
+        message: AUTH_MESSAGES.INVALID_PROVIDER,
+        status: httpStatusCode.BAD_REQUEST
+      })
+    )
+  }
+
+  try {
+    // Check if user already has this provider linked
+    const existingLink = await databaseServices.socialLinks.findOne({
+      issuerId: new ObjectId(decodedAuthorization.issuerId),
+      provider
+    })
+
+    if (existingLink) {
+      return res.status(httpStatusCode.OK).json({
+        message: AUTH_MESSAGES.SOCIAL_ACCOUNT_ALREADY_LINKED_TO_YOU,
+        data: {
+          provider,
+          isLinked: true
+        }
+      })
+    }
+
+    return next()
+  } catch (error) {
+    return next(error)
+  }
+})
 
 export const refreshTokenValidation = wrapRequestHandler(
   validate(

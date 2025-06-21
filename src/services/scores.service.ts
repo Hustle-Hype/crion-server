@@ -1,20 +1,11 @@
 import { ObjectId } from 'mongodb'
 import databaseServices from '~/services/database.services'
-import { IScores } from '~/models/schemas/scores.schema'
-import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
-import { BehaviorFlag, IIssuer, KYCStatus, SocialLinkSubDocument } from '~/models/schemas/issuer.schema'
-import {
-  scoreWeightsConfig,
-  SOCIAL_SCORE_WEIGHTS,
-  TIER_THRESHOLDS,
-  TierType,
-  SCORE_CATEGORIES,
-  DETAILED_SCORE_WEIGHTS,
-  SCORE_HISTORY_SOURCES
-} from '~/constants/scores'
-import { httpStatusCode } from '~/core/httpStatusCode'
-import { ErrorWithStatus } from '~/utils/error.utils'
+import { IScores, IScoreSubDocument } from '~/models/schemas/scores.schema'
+import { BehaviorFlag, KYCStatus, SocialLinkSubDocument } from '~/models/schemas/issuer.schema'
+import { SCORE_CATEGORIES, SCORE_HISTORY_SOURCES, SOCIAL_SCORES, SCORE_TIERS } from '~/constants/scores'
 import { ProviderType } from '~/constants/enum'
+import { logger } from '~/loggers/my-logger.log'
+import { IScoreHistory } from '~/models/schemas/scoreHistory.schema'
 
 interface ScoreValue {
   score: number
@@ -29,36 +20,32 @@ const getScoreValue = (result: ScoreResult): number => {
 }
 
 class ScoresService {
-  private calculateTier(totalScore: number): TierType {
-    for (const [tier, threshold] of Object.entries(TIER_THRESHOLDS)) {
-      if (totalScore >= threshold) {
-        return tier as TierType
+  private calculateTier(totalScore: number): IScores['tier'] {
+    for (const [tier, range] of Object.entries(SCORE_TIERS)) {
+      if (totalScore >= range.min && totalScore <= range.max) {
+        return tier as IScores['tier']
       }
     }
     return 'new_issuer'
   }
 
   private calculateStakingScore(stakedAmount: number): number {
-    const { BASE_MULTIPLIER, MAX_SCORE } = DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.STAKING]
-    // Base score calculation using logarithmic scale
-    const baseScore = Math.min(Math.log10(stakedAmount + 1) * BASE_MULTIPLIER, MAX_SCORE)
+    // Simple logarithmic scale without weights
+    const baseScore = Math.min(Math.log10(stakedAmount + 1) * 10, 100)
     return Math.round(baseScore * 100) / 100
   }
 
   private calculateWalletBehaviorScore(flags: BehaviorFlag[]): { score: number; note: string } {
     if (!flags.length) {
       return {
-        score: Number(scoreWeightsConfig.walletBehavior),
-        note: `Clean wallet history (${Number(scoreWeightsConfig.walletBehavior)}/${Number(scoreWeightsConfig.walletBehavior)} points)`
+        score: 100, // Full score for clean wallet
+        note: 'Clean wallet history (100/100 points)'
       }
     }
 
     const now = new Date()
     let totalPenalty = 0
     const flagDetails: string[] = []
-
-    const { TIME_DECAY_DAYS, MIN_MULTIPLIER, MAX_POINTS_PER_SEVERITY } =
-      DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.WALLET_BEHAVIOR].SEVERITY_PENALTY
 
     // Group flags by severity for better calculation
     const severityGroups = flags.reduce(
@@ -77,12 +64,12 @@ class ScoresService {
         ...flagsInGroup.map((f) => (now.getTime() - f.detectedAt.getTime()) / (1000 * 60 * 60 * 24))
       )
 
-      // Time decay: flags lose impact over time
-      const recencyMultiplier = Math.max(MIN_MULTIPLIER, 1 - daysSinceOldest / TIME_DECAY_DAYS)
+      // Time decay: flags lose impact over time (365 days)
+      const recencyMultiplier = Math.max(0.1, 1 - daysSinceOldest / 365)
 
       // Progressive penalty: multiple flags of same severity have diminishing returns
       const flagCount = flagsInGroup.length
-      const basePenalty = (severityNum / 5) * MAX_POINTS_PER_SEVERITY
+      const basePenalty = (severityNum / 5) * 20 // Max 20 points penalty per severity
       const diminishingFactor = Math.log(flagCount + 1) / Math.log(2) // Logarithmic decrease
 
       const penalty = basePenalty * recencyMultiplier * diminishingFactor
@@ -91,7 +78,7 @@ class ScoresService {
       flagDetails.push(`${flagCount} severity-${severityNum} flag(s)`)
     })
 
-    const finalScore = Math.max(0, Math.round((Number(scoreWeightsConfig.walletBehavior) - totalPenalty) * 100) / 100)
+    const finalScore = Math.max(0, Math.round((100 - totalPenalty) * 100) / 100)
 
     return {
       score: finalScore,
@@ -102,16 +89,11 @@ class ScoresService {
   private calculateSocialScore(socialLinks: SocialLinkSubDocument[]): number {
     if (!socialLinks.length) return 0
 
-    const { BASE_WEIGHT, AGE_BONUS } = DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.SOCIAL]
-
     // Calculate total score from verified social accounts
     const totalScore = socialLinks.reduce((sum, link) => {
-      const score = SOCIAL_SCORE_WEIGHTS[link.provider as keyof typeof SOCIAL_SCORE_WEIGHTS] || 0
+      const score = SOCIAL_SCORES[link.provider as keyof typeof SOCIAL_SCORES] || 0
       return sum + score
     }, 0)
-
-    // Base points from weights
-    const basePoints = Math.min(totalScore * BASE_WEIGHT, Number(scoreWeightsConfig.social))
 
     // Bonus points for account age
     const now = new Date()
@@ -119,26 +101,24 @@ class ScoresService {
 
     socialLinks.forEach((link) => {
       const accountAge = (now.getTime() - link.verifiedAt.getTime()) / (1000 * 60 * 60 * 24)
-      if (accountAge > 180) ageBonus += AGE_BONUS.SIX_MONTHS * Number(scoreWeightsConfig.social) // 6 months
-      if (accountAge > 365) ageBonus += AGE_BONUS.ONE_YEAR * Number(scoreWeightsConfig.social) // 1 year
+      if (accountAge > 180) ageBonus += 0.5 // 0.5 points bonus for accounts older than 6 months
+      if (accountAge > 365) ageBonus += 0.5 // Additional 0.5 points bonus for accounts older than 1 year
     })
 
-    return Math.min(basePoints + ageBonus, Number(scoreWeightsConfig.social))
+    return Math.min(totalScore + ageBonus, 100)
   }
 
   private calculateKYCScore(kycStatus: KYCStatus): number {
     if (kycStatus.status !== 'approved') return 0
     if (kycStatus.expiration && kycStatus.expiration < new Date()) return 0
 
-    let score = Number(scoreWeightsConfig.kyc) // Base score for valid KYC
+    let score = 100 // Full score for valid KYC
 
-    const { EXPIRATION_WARNING_DAYS, EXPIRATION_PENALTY } = DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.KYC]
-
-    // Deduct points if close to expiration
+    // Deduct points if close to expiration (30 days warning)
     if (kycStatus.expiration) {
       const daysToExpiration = (kycStatus.expiration.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
-      if (daysToExpiration < EXPIRATION_WARNING_DAYS) {
-        score *= 1 - EXPIRATION_PENALTY
+      if (daysToExpiration < 30) {
+        score *= 0.8 // 20% reduction when close to expiration
       }
     }
 
@@ -146,11 +126,8 @@ class ScoresService {
   }
 
   private async calculateLaunchScore(issuerId: ObjectId): Promise<number> {
-    const { LOOKBACK_MONTHS, MULTIPLE_SUCCESS_BONUS, MIN_LAUNCHES_FOR_BONUS } =
-      DETAILED_SCORE_WEIGHTS[SCORE_CATEGORIES.LAUNCH_HISTORY]
-
     const lookbackDate = new Date()
-    lookbackDate.setMonth(lookbackDate.getMonth() - LOOKBACK_MONTHS)
+    lookbackDate.setMonth(lookbackDate.getMonth() - 6) // Consider launches from last 6 months
 
     const launchHistory = await databaseServices
       .getClient()
@@ -181,11 +158,11 @@ class ScoresService {
     const successRate = successfulLaunches / totalLaunches
 
     // Base score from success rate
-    let score = successRate * Number(scoreWeightsConfig.launchHistory)
+    let score = successRate * 100
 
     // Bonus for multiple successful launches
-    if (successfulLaunches >= MIN_LAUNCHES_FOR_BONUS) {
-      score = Math.min(score + MULTIPLE_SUCCESS_BONUS, Number(scoreWeightsConfig.launchHistory))
+    if (successfulLaunches >= 3) {
+      score = Math.min(score + 5, 100) // 5 points bonus for 3+ successful launches
     }
 
     return Math.round(score * 100) / 100
@@ -195,7 +172,7 @@ class ScoresService {
     issuerId: ObjectId,
     scores: Record<string, ScoreResult>,
     totalScore: number,
-    tier: TierType
+    tier: IScores['tier']
   ): IScoreHistory {
     return {
       _id: new ObjectId(),
@@ -214,116 +191,186 @@ class ScoresService {
     }
   }
 
-  async calculateAndUpdateScores(issuerId: ObjectId): Promise<IScores> {
-    const session = await databaseServices.getClient().startSession()
+  async calculateAndUpdateScores(issuerId: ObjectId): Promise<void> {
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.calculateAndUpdateScores', '', {
+        issuerId: issuerId.toString()
+      })
+      return
+    }
 
-    try {
-      session.startTransaction()
+    // Calculate total score by summing all scores directly (no weights)
+    const totalScore = Object.values(currentScores.scores).reduce((acc, value) => acc + value, 0)
 
-      // Get issuer data
-      const issuer = (await databaseServices.issuers.findOne({ _id: issuerId }, { session })) as IIssuer
+    // Calculate tier based on total score
+    const tier = this.calculateTier(totalScore)
 
-      if (!issuer) {
-        throw new ErrorWithStatus({
-          message: 'Issuer not found',
-          status: httpStatusCode.NOT_FOUND
-        })
-      }
-
-      // Calculate individual scores
-      const [launchScore, scores] = await Promise.all([
-        this.calculateLaunchScore(issuerId),
-        Promise.resolve({
-          staking: this.calculateStakingScore(issuer.stakedAmount),
-          walletBehavior: this.calculateWalletBehaviorScore(issuer.behaviorFlags),
-          social: this.calculateSocialScore(issuer.socialLinks),
-          kyc: this.calculateKYCScore(issuer.kycStatus),
-          launchHistory: 0
-        } as Record<string, ScoreResult>)
-      ])
-
-      scores.launchHistory = launchScore
-
-      // Calculate total score
-      const totalScore = Object.entries(scores).reduce((sum, [, value]) => sum + getScoreValue(value), 0)
-
-      const tier = this.calculateTier(totalScore)
-
-      // Create score history record
-      const scoreHistory = this.createScoreHistoryEntry(issuerId, scores, totalScore, tier)
-
-      // Update scores and history atomically
-      await Promise.all([
-        databaseServices.scores.updateOne(
-          { issuerId },
-          {
-            $set: {
-              scores: {
-                staking: getScoreValue(scores.staking),
-                walletBehavior: getScoreValue(scores.walletBehavior),
-                launchHistory: getScoreValue(scores.launchHistory),
-                social: getScoreValue(scores.social),
-                kyc: getScoreValue(scores.kyc)
-              },
-              totalScore,
-              tier,
-              updatedAt: new Date()
-            },
-            $setOnInsert: {
-              issuerId,
-              createdAt: new Date()
-            }
-          },
-          { upsert: true, session }
-        ),
-        databaseServices.scoreHistories.insertOne(scoreHistory, { session })
-      ])
-
-      // Update issuer's total score
-      await databaseServices.issuers.updateOne(
-        { _id: issuerId },
+    // Update scores
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
         {
           $set: {
-            score: totalScore,
+            totalScore,
+            tier,
             updatedAt: new Date()
           }
-        },
-        { session }
+        }
       )
+    ])
 
-      await session.commitTransaction()
+    logger.info('Scores recalculated', 'ScoresService.calculateAndUpdateScores', '', {
+      issuerId: issuerId.toString(),
+      totalScore,
+      tier
+    })
+  }
 
-      return {
-        _id: new ObjectId(),
-        issuerId,
-        scores: {
-          staking: getScoreValue(scores.staking),
-          walletBehavior: getScoreValue(scores.walletBehavior),
-          launchHistory: getScoreValue(scores.launchHistory),
-          social: getScoreValue(scores.social),
-          kyc: getScoreValue(scores.kyc)
-        },
-        totalScore,
-        tier,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    } catch (error) {
-      await session.abortTransaction()
-      throw error
-    } finally {
-      await session.endSession()
+  async addSocialScore(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
+    const rawScore = SOCIAL_SCORES[provider as keyof typeof SOCIAL_SCORES] || 0
+
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.addSocialScore', '', { issuerId: issuerId.toString() })
+      return
     }
+
+    // Update social score (max 100) - directly use raw score without weights
+    const updatedSocialScore = Math.min(100, (currentScores.scores.social || 0) + rawScore)
+    const updatedScores: IScoreSubDocument = {
+      ...currentScores.scores,
+      social: updatedSocialScore
+    }
+
+    // Calculate total score by summing all scores directly (no weights)
+    const totalScore = Object.values(updatedScores).reduce((acc, value) => acc + value, 0)
+
+    // Calculate tier based on total score
+    const tier = this.calculateTier(totalScore)
+
+    // Create score history entry
+    const scoreHistory: IScoreHistory = {
+      _id: new ObjectId(),
+      issuerId,
+      scores: [
+        {
+          key: `${SCORE_CATEGORIES.SOCIAL}:${provider}`,
+          raw: rawScore,
+          weighted: rawScore, // Keep weighted same as raw for consistency
+          note: `Added ${rawScore} points for linking ${provider} account`
+        }
+      ],
+      totalScore,
+      badge: tier,
+      recordedAt: new Date(),
+      version: 1,
+      source: SCORE_HISTORY_SOURCES.SYSTEM
+    }
+
+    // Update scores and add history
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
+        {
+          $set: {
+            scores: updatedScores,
+            totalScore,
+            tier,
+            updatedAt: new Date()
+          }
+        }
+      ),
+      databaseServices.scoreHistories.insertOne(scoreHistory)
+    ])
+
+    logger.info('Social score updated', 'ScoresService.addSocialScore', '', {
+      issuerId: issuerId.toString(),
+      provider,
+      rawScore,
+      newTotalScore: totalScore,
+      newTier: tier
+    })
   }
 
-  async getProviderScore(provider: ProviderType): Promise<number> {
-    return SOCIAL_SCORE_WEIGHTS[provider as keyof typeof SOCIAL_SCORE_WEIGHTS] || 0
-  }
+  async removeSocialScore(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
+    const unlinkPenalty: Record<Exclude<ProviderType, ProviderType.WALLET>, number> = {
+      [ProviderType.GOOGLE]: 2, // +1 when link, -2 when unlink
+      [ProviderType.X]: 3, // +1.5 when link, -3 when unlink
+      [ProviderType.LINKEDIN]: 4, // +2 when link, -4 when unlink
+      [ProviderType.TELEGRAM]: 2, // +1 when link, -2 when unlink
+      [ProviderType.GITHUB]: 2 // Default penalty for any other provider
+    }
 
-  // async getTotalScore(issuerId: ObjectId): Promise<number> {
-  //   const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
-  //   return issuer?.stakedAmount || 0
-  // }
+    const penaltyScore = unlinkPenalty[provider] || 0
+
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.removeSocialScore', '', {
+        issuerId: issuerId.toString()
+      })
+      return
+    }
+
+    // Update social score (min 0) - deduct penalty score
+    const updatedSocialScore = Math.max(0, (currentScores.scores.social || 0) - penaltyScore)
+    const updatedScores: IScoreSubDocument = {
+      ...currentScores.scores,
+      social: updatedSocialScore
+    }
+
+    // Calculate total score by summing all scores directly (no weights)
+    const totalScore = Object.values(updatedScores).reduce((acc, value) => acc + value, 0)
+
+    // Calculate tier based on total score
+    const tier = this.calculateTier(totalScore)
+
+    // Create score history entry
+    const scoreHistory: IScoreHistory = {
+      _id: new ObjectId(),
+      issuerId,
+      scores: [
+        {
+          key: `${SCORE_CATEGORIES.SOCIAL}:${provider}`,
+          raw: -penaltyScore,
+          weighted: -penaltyScore, // Keep weighted same as raw for consistency
+          note: `Deducted ${penaltyScore} points for unlinking ${provider} account`
+        }
+      ],
+      totalScore,
+      badge: tier,
+      recordedAt: new Date(),
+      version: 1,
+      source: SCORE_HISTORY_SOURCES.SYSTEM
+    }
+
+    // Update scores and add history
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
+        {
+          $set: {
+            scores: updatedScores,
+            totalScore,
+            tier,
+            updatedAt: new Date()
+          }
+        }
+      ),
+      databaseServices.scoreHistories.insertOne(scoreHistory)
+    ])
+
+    logger.info('Social score updated after unlinking', 'ScoresService.removeSocialScore', '', {
+      issuerId: issuerId.toString(),
+      provider,
+      penaltyScore,
+      newTotalScore: totalScore,
+      newTier: tier
+    })
+  }
 }
 
 export default new ScoresService()

@@ -1,8 +1,8 @@
 import { ObjectId } from 'mongodb'
 
 export enum TokenType {
-  AccessToken = 'accessToken',
-  RefreshToken = 'refreshToken'
+  AccessToken = 'access_token',
+  RefreshToken = 'refresh_token'
 }
 
 export enum TokenStatus {

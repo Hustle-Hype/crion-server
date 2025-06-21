@@ -10,7 +10,7 @@ export interface SocialAccountMetadata {
   bio?: string
 }
 
-export interface IAccount {
+export interface ISocialLink {
   _id: ObjectId
   issuerId: ObjectId // Reference to the main issuer
   provider: Exclude<ProviderType, ProviderType.WALLET>
@@ -23,20 +23,20 @@ export interface IAccount {
   updatedAt: Date
 }
 
-export interface CreateAccountParams {
+export interface CreateSocialLinkParams {
   provider: Exclude<ProviderType, ProviderType.WALLET>
   providerAccountId: string
   metadata?: SocialAccountMetadata
 }
 
-export function createAccount(issuerId: ObjectId, params: CreateAccountParams): Omit<IAccount, '_id'> {
+export function createSocialLink(issuerId: ObjectId, params: CreateSocialLinkParams): Omit<ISocialLink, '_id'> {
   const now = new Date()
 
   return {
     issuerId,
     provider: params.provider,
     providerAccountId: params.providerAccountId,
-    isVerified: false,
+    isVerified: true,
     metadata: params.metadata,
     lastUsedAt: now,
     createdAt: now,

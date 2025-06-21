@@ -1,9 +1,11 @@
-import googleStrategy from './passport/google'
+import passport from 'passport'
+import { googleStrategy } from './passport/google'
 import { twitterStrategy } from './passport/twitter'
-import { PassportStatic } from 'passport'
+// import { githubStrategy } from './passport/github'
 
-export const passportConfig = (passport: PassportStatic): void => {
-  // use these strategies
-  passport.use('google', googleStrategy)
-  passport.use(twitterStrategy)
-}
+// Initialize passport strategies
+passport.use(googleStrategy)
+passport.use(twitterStrategy)
+// passport.use(githubStrategy)
+
+export default passport
