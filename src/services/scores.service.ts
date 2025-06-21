@@ -294,6 +294,83 @@ class ScoresService {
       newTier: tier
     })
   }
+
+  async removeSocialScore(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
+    const unlinkPenalty: Record<Exclude<ProviderType, ProviderType.WALLET>, number> = {
+      [ProviderType.GOOGLE]: 2, // +1 when link, -2 when unlink
+      [ProviderType.X]: 3, // +1.5 when link, -3 when unlink
+      [ProviderType.LINKEDIN]: 4, // +2 when link, -4 when unlink
+      [ProviderType.TELEGRAM]: 2, // +1 when link, -2 when unlink
+      [ProviderType.GITHUB]: 2 // Default penalty for any other provider
+    }
+
+    const penaltyScore = unlinkPenalty[provider] || 0
+
+    // Get current scores
+    const currentScores = await databaseServices.scores.findOne({ issuerId })
+    if (!currentScores) {
+      logger.error('Scores not found for issuer', 'ScoresService.removeSocialScore', '', {
+        issuerId: issuerId.toString()
+      })
+      return
+    }
+
+    // Update social score (min 0) - deduct penalty score
+    const updatedSocialScore = Math.max(0, (currentScores.scores.social || 0) - penaltyScore)
+    const updatedScores: IScoreSubDocument = {
+      ...currentScores.scores,
+      social: updatedSocialScore
+    }
+
+    // Calculate total score by summing all scores directly (no weights)
+    const totalScore = Object.values(updatedScores).reduce((acc, value) => acc + value, 0)
+
+    // Calculate tier based on total score
+    const tier = this.calculateTier(totalScore)
+
+    // Create score history entry
+    const scoreHistory: IScoreHistory = {
+      _id: new ObjectId(),
+      issuerId,
+      scores: [
+        {
+          key: `${SCORE_CATEGORIES.SOCIAL}:${provider}`,
+          raw: -penaltyScore,
+          weighted: -penaltyScore, // Keep weighted same as raw for consistency
+          note: `Deducted ${penaltyScore} points for unlinking ${provider} account`
+        }
+      ],
+      totalScore,
+      badge: tier,
+      recordedAt: new Date(),
+      version: 1,
+      source: SCORE_HISTORY_SOURCES.SYSTEM
+    }
+
+    // Update scores and add history
+    await Promise.all([
+      databaseServices.scores.updateOne(
+        { issuerId },
+        {
+          $set: {
+            scores: updatedScores,
+            totalScore,
+            tier,
+            updatedAt: new Date()
+          }
+        }
+      ),
+      databaseServices.scoreHistories.insertOne(scoreHistory)
+    ])
+
+    logger.info('Social score updated after unlinking', 'ScoresService.removeSocialScore', '', {
+      issuerId: issuerId.toString(),
+      provider,
+      penaltyScore,
+      newTotalScore: totalScore,
+      newTier: tier
+    })
+  }
 }
 
 export default new ScoresService()

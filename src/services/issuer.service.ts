@@ -127,7 +127,8 @@ class IssuerService {
   }
 
   async unlinkSocialAccount(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
-    const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
+    const issuerIdObj = new ObjectId(issuerId)
+    const issuer = await databaseServices.issuers.findOne({ _id: issuerIdObj })
     if (!issuer) {
       throw new ErrorWithStatus({
         message: AUTH_MESSAGES.USER_NOT_FOUND,
@@ -136,9 +137,9 @@ class IssuerService {
     }
 
     await Promise.all([
-      databaseServices.socialLinks.deleteOne({ issuerId, provider }),
+      databaseServices.socialLinks.deleteOne({ issuerId: issuerIdObj, provider }),
       databaseServices.issuers.updateOne(
-        { _id: issuerId },
+        { _id: issuerIdObj },
         {
           $pull: { socialLinks: { provider } },
           $set: { updatedAt: new Date() }
@@ -146,10 +147,10 @@ class IssuerService {
       )
     ])
 
-    await scoresService.calculateAndUpdateScores(issuerId)
+    await scoresService.removeSocialScore(issuerIdObj, provider)
 
     logger.info('Social account unlinked successfully', 'IssuerService.unlinkSocialAccount', '', {
-      issuerId: issuerId.toString(),
+      issuerId: issuerIdObj.toString(),
       provider
     })
   }

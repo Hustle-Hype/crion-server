@@ -7,6 +7,8 @@ import { ObjectId } from 'mongodb'
 import { ProviderType } from '~/constants/enum'
 import { envConfig } from '~/config/config'
 import passport from '~/config/passport'
+import { TokenPayload } from '~/models/requests/token.request'
+import { OK } from '~/core/succes.response'
 
 class IssuerController {
   private generateState = (issuerId: string, accessToken: string): string => {
@@ -384,15 +386,8 @@ class IssuerController {
 
   handleSocialUnlink = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { decodedAuthorization } = req
+      const { issuerId } = req.decodedAuthorization as TokenPayload
       const { provider } = req.params
-
-      if (!decodedAuthorization?.issuerId) {
-        throw new ErrorWithStatus({
-          message: AUTH_MESSAGES.UNAUTHORIZED,
-          status: httpStatusCode.UNAUTHORIZED
-        })
-      }
 
       if (!Object.values(ProviderType).includes(provider as ProviderType)) {
         throw new ErrorWithStatus({
@@ -401,14 +396,11 @@ class IssuerController {
         })
       }
 
-      await issuerService.unlinkSocialAccount(
-        decodedAuthorization.issuerId,
-        provider as Exclude<ProviderType, ProviderType.WALLET>
-      )
+      await issuerService.unlinkSocialAccount(issuerId, provider as Exclude<ProviderType, ProviderType.WALLET>)
 
-      return res.json({
+      new OK({
         message: AUTH_MESSAGES.UNLINK_SUCCESS
-      })
+      }).send(res)
     } catch (error) {
       next(error)
     }
