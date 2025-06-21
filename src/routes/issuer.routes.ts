@@ -2,8 +2,22 @@ import { Router } from 'express'
 import issuerController from '~/controllers/issuer.controller'
 import { wrapRequestHandler } from '~/utils/wrapHandler'
 import { accessTokenValidation, checkSocialLinkStatus } from '~/middlewares/auth.middlewares'
+import { validateSchema } from '~/middlewares/validation.middlewares'
+import { UpdateProfileRequestSchema } from '~/models/requests/issuer.request'
 
 const issuerRouter = Router()
+
+// Profile endpoints
+issuerRouter.get('/me', accessTokenValidation, wrapRequestHandler(issuerController.getProfile))
+issuerRouter.patch(
+  '/me',
+  accessTokenValidation,
+  validateSchema(UpdateProfileRequestSchema),
+  wrapRequestHandler(issuerController.updateProfile)
+)
+issuerRouter.get('/me/score-history', accessTokenValidation, wrapRequestHandler(issuerController.getScoreHistory))
+issuerRouter.get('/me/wallet-links', accessTokenValidation, wrapRequestHandler(issuerController.getWalletLinks))
+issuerRouter.get('/me/social-links', accessTokenValidation, wrapRequestHandler(issuerController.getSocialLinks))
 
 // Social link URLs
 issuerRouter.get(

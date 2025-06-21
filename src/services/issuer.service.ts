@@ -7,6 +7,7 @@ import { AUTH_MESSAGES } from '~/constants/messages'
 import { logger } from '~/loggers/my-logger.log'
 import scoresService from './scores.service'
 import { createSocialLink, ISocialLink } from '~/models/schemas/socialLink.schema'
+import { IIssuer } from '~/models/schemas/issuer.schema'
 
 interface SocialProfile {
   id: string
@@ -16,6 +17,21 @@ interface SocialProfile {
   username?: string
   profileUrl?: string
   photos?: Array<{ value: string }>
+}
+
+interface UpdateProfileParams {
+  name?: string
+  bio?: string
+  avatar?: string
+  website?: string
+  metadata?: {
+    preferences?: {
+      notifications?: boolean
+      language?: string
+      timezone?: string
+    }
+    customFields?: Record<string, unknown>
+  }
 }
 
 class IssuerService {
@@ -153,6 +169,107 @@ class IssuerService {
       issuerId: issuerIdObj.toString(),
       provider
     })
+  }
+
+  async getProfile(issuerId: ObjectId): Promise<Partial<IIssuer> | null> {
+    try {
+      const issuer = await databaseServices.issuers.findOne(
+        { _id: issuerId },
+        {
+          projection: {
+            behaviorFlags: 0,
+            status: 0,
+            createdAt: 0,
+            updatedAt: 0,
+            lastLoginAt: 0,
+            lastLoginIP: 0,
+            lastLoginUserAgent: 0
+          }
+        }
+      )
+      if (!issuer) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.USER_NOT_FOUND,
+          status: httpStatusCode.NOT_FOUND
+        })
+      }
+      return issuer
+    } catch (error) {
+      logger.error('Error getting issuer profile', 'IssuerService.getProfile', '', {
+        issuerId: issuerId.toString(),
+        error
+      })
+      throw error
+    }
+  }
+
+  async updateProfile(issuerId: ObjectId, updateData: UpdateProfileParams): Promise<void> {
+    try {
+      const issuer = await databaseServices.issuers.findOne({ _id: issuerId })
+      if (!issuer) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.USER_NOT_FOUND,
+          status: httpStatusCode.NOT_FOUND
+        })
+      }
+
+      const updateFields: Record<string, any> = {
+        ...updateData,
+        updatedAt: new Date()
+      }
+
+      await databaseServices.issuers.updateOne({ _id: issuerId }, { $set: updateFields })
+
+      logger.info('Profile updated successfully', 'IssuerService.updateProfile', '', {
+        issuerId: issuerId.toString(),
+        updateFields
+      })
+    } catch (error) {
+      logger.error('Error updating issuer profile', 'IssuerService.updateProfile', '', {
+        issuerId: issuerId.toString(),
+        error
+      })
+      throw error
+    }
+  }
+
+  async getScoreHistory(issuerId: ObjectId) {
+    try {
+      const scoreHistory = await databaseServices.scoreHistories.find({ issuerId }).toArray()
+      return scoreHistory
+    } catch (error) {
+      logger.error('Error getting score history', 'IssuerService.getScoreHistory', '', {
+        issuerId: issuerId.toString(),
+        error
+      })
+      throw error
+    }
+  }
+
+  async getWalletLinks(issuerId: ObjectId) {
+    try {
+      const issuer = await this.getProfile(issuerId)
+      return issuer?.walletLinks || []
+    } catch (error) {
+      logger.error('Error getting wallet links', 'IssuerService.getWalletLinks', '', {
+        issuerId: issuerId.toString(),
+        error
+      })
+      throw error
+    }
+  }
+
+  async getSocialLinks(issuerId: ObjectId) {
+    try {
+      const issuer = await this.getProfile(issuerId)
+      return issuer?.socialLinks || []
+    } catch (error) {
+      logger.error('Error getting social links', 'IssuerService.getSocialLinks', '', {
+        issuerId: issuerId.toString(),
+        error
+      })
+      throw error
+    }
   }
 }
 
