@@ -36,7 +36,7 @@ export function createSocialLink(issuerId: ObjectId, params: CreateSocialLinkPar
     issuerId,
     provider: params.provider,
     providerAccountId: params.providerAccountId,
-    isVerified: false,
+    isVerified: true,
     metadata: params.metadata,
     lastUsedAt: now,
     createdAt: now,
