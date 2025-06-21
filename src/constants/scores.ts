@@ -69,16 +69,9 @@ export const DETAILED_SCORE_WEIGHTS = {
 export const SOCIAL_SCORES = {
   [ProviderType.GOOGLE]: 1,
   [ProviderType.X]: 1.5,
+  [ProviderType.GITHUB]: 1.5,
   [ProviderType.LINKEDIN]: 2,
   [ProviderType.TELEGRAM]: 1
-} as const
-
-export const SCORE_WEIGHTS = {
-  staking: 0.3,
-  walletBehavior: 0.2,
-  launchHistory: 0.2,
-  social: 0.2,
-  kyc: 0.1
 } as const
 
 export const SCORE_TIERS = {
