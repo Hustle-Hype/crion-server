@@ -9,6 +9,7 @@ import { envConfig } from '~/config/config'
 import passport from '~/config/passport'
 import { TokenPayload } from '~/models/requests/token.request'
 import { OK } from '~/core/succes.response'
+import { UpdateProfileRequest } from '~/models/requests/issuer.request'
 
 class IssuerController {
   private generateState = (issuerId: string, accessToken: string): string => {
@@ -400,6 +401,105 @@ class IssuerController {
 
       new OK({
         message: AUTH_MESSAGES.UNLINK_SUCCESS
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  getProfile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { decodedAuthorization } = req
+      if (!decodedAuthorization?.issuerId) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.UNAUTHORIZED,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+
+      const issuer = await issuerService.getProfile(new ObjectId(decodedAuthorization.issuerId))
+      new OK({
+        message: 'Get profile successfully',
+        data: issuer
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  updateProfile = async (req: Request<any, any, UpdateProfileRequest>, res: Response, next: NextFunction) => {
+    try {
+      const { decodedAuthorization } = req
+      if (!decodedAuthorization?.issuerId) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.UNAUTHORIZED,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+
+      await issuerService.updateProfile(new ObjectId(decodedAuthorization.issuerId), req.body)
+      new OK({
+        message: 'Update profile successfully'
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  getScoreHistory = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { decodedAuthorization } = req
+      if (!decodedAuthorization?.issuerId) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.UNAUTHORIZED,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+
+      const scoreHistory = await issuerService.getScoreHistory(new ObjectId(decodedAuthorization.issuerId))
+      new OK({
+        message: 'Get score history successfully',
+        data: scoreHistory
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  getWalletLinks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { decodedAuthorization } = req
+      if (!decodedAuthorization?.issuerId) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.UNAUTHORIZED,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+
+      const walletLinks = await issuerService.getWalletLinks(new ObjectId(decodedAuthorization.issuerId))
+      new OK({
+        message: 'Get wallet links successfully',
+        data: walletLinks
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  getSocialLinks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { decodedAuthorization } = req
+      if (!decodedAuthorization?.issuerId) {
+        throw new ErrorWithStatus({
+          message: AUTH_MESSAGES.UNAUTHORIZED,
+          status: httpStatusCode.UNAUTHORIZED
+        })
+      }
+
+      const socialLinks = await issuerService.getSocialLinks(new ObjectId(decodedAuthorization.issuerId))
+      new OK({
+        message: 'Get social links successfully',
+        data: socialLinks
       }).send(res)
     } catch (error) {
       next(error)
