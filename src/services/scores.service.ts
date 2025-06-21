@@ -279,7 +279,7 @@ class ScoresService {
   }
 
   async addSocialScore(issuerId: ObjectId, provider: Exclude<ProviderType, ProviderType.WALLET>): Promise<void> {
-    const rawScore = SOCIAL_SCORES[provider] || 0
+    const rawScore = SOCIAL_SCORES[provider as keyof typeof SOCIAL_SCORES] || 0
 
     // Get current scores
     const currentScores = await databaseServices.scores.findOne({ issuerId })
