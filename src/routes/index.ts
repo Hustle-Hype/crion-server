@@ -4,9 +4,8 @@ import issuerRouter from '~/routes/issuer.routes'
 import accountRouter from '~/routes/account.routes'
 
 const rootRouterV1 = Router()
-rootRouterV1.get('/helpers', (req, res) => {
-  console.log('Hello World')
-  res.status(200).send({ message: 'Welcome to Express & TypeScript Server' })
+rootRouterV1.get('/healthz', (req, res) => {
+  res.status(200).send({ message: 'Welcome to Crio API' })
 })
 
 const defaultRoutes = [
