@@ -45,19 +45,20 @@ export const accessTokenValidation = wrapRequestHandler(async (req: Request, res
     const [tokenType, authToken] = authorization.split(' ')
     if (tokenType === 'Bearer' && authToken) {
       token = authToken
+      console.log('token', token)
     }
   }
 
   // If not in header, check query parameters
-  if (!token && req.query.access_token) {
-    token = req.query.access_token as string
+  if (!token && req.query.accessToken) {
+    token = req.query.accessToken as string
     // Add it to headers for passport to use
     req.headers.authorization = `Bearer ${token}`
   }
 
   // If still not found, check body
-  if (!token && req.body?.access_token) {
-    token = req.body.access_token
+  if (!token && req.body?.accessToken) {
+    token = req.body.accessToken
     req.headers.authorization = `Bearer ${token}`
   }
 
