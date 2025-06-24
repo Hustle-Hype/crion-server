@@ -15,23 +15,40 @@ export interface WalletLoginResponse {
   user: {
     id: string
     address: string
-    score: number
-    avatar?: string
-    bio?: string
+    bio: string
+    avatar: string
     stakedAmount: number
-    website?: string
-    walletLinks: {
-      network: NetworkType
-      address: string
-    }[]
-    socialLinks: {
-      provider: string
-      providerId: string
-    }[]
+    score: number
+    website: string
+    walletLinks: { network: string; address: string }[]
+    socialLinks: { provider: string; providerId: string }[]
   }
 }
 
 export interface NonceResponse {
   nonce: string
   message: string
+}
+
+export interface JWTSignature {
+  signature: {
+    jwtHeader: string
+    ephemeralPublicKey: {
+      publicKey: {
+        key: {
+          data: Record<string, number>
+        }
+      }
+      variant: number
+    }
+    ephemeralSignature: {
+      signature: {
+        data: {
+          data: Record<string, number>
+        }
+      }
+    }
+    expiryDateSecs: number
+  }
+  variant: number
 }

@@ -27,6 +27,7 @@ export const AUTH_MESSAGES = {
   INVALID_SIGNATURE: 'Invalid signature',
   NONCE_EXPIRED: 'Nonce has expired',
   NONCE_GENERATED: 'Nonce generated successfully',
+  NONCE_NOT_FOUND: 'Nonce not found',
   ACCOUNT_CREATION_FAILED: 'Failed to create account',
   ACCOUNT_NOT_FOUND: 'Account not found',
   SOCIAL_ACCOUNT_ALREADY_LINKED: 'This social account is already linked',

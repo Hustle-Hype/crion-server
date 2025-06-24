@@ -1,33 +1,23 @@
-export interface AptosSignature {
-  prefix: 'APTOS'
-  publicKey: string
-  signature: any // Using any temporarily to handle complex signature structure
-  message: string
-  fullMessage: string
-  nonce?: string
+import { JWTSignature } from '../types/auth.types'
+
+export interface AptosStandardSignature {
+  data: {
+    data: Record<string, number>
+  }
 }
 
-// src/models/requests/login.request.ts
 export interface WalletLoginRequest {
   address: string
-  publicKey: string // Add this field
-  signature: {
-    prefix: 'APTOS'
-    publicKey: string
-    signature: string
-    message: string
-    fullMessage: string
-  }
+  signature: AptosStandardSignature | JWTSignature
   message: string
-  timestamp: number
+  publicKey?: string
 }
 
 export interface SignatureMessage {
   nonce: string
   address: string
   timestamp: number
-  domain: string // Domain name for EIP-4361 compliance
+  domain: string
 }
 
-// Maximum age of signature in milliseconds (15 minutes)
-export const MAX_SIGNATURE_AGE = 15 * 60 * 1000 // 15 minutes in milliseconds
+export const MAX_SIGNATURE_AGE = 15 * 60 * 1000

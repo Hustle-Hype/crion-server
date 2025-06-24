@@ -9,36 +9,14 @@ import { AUTH_MESSAGES } from '~/constants/messages'
 import { signToken } from '~/utils/jwt.utils'
 import { Request } from 'express'
 import { logger } from '~/loggers/my-logger.log'
-import { WalletLoginResponse, NonceResponse } from '~/models/types/auth.types'
+import { WalletLoginResponse, NonceResponse, JWTSignature } from '~/models/types/auth.types'
 import { ethers } from 'ethers'
 import { envConfig } from '~/config/config'
-import { WalletLoginRequest, AptosSignature } from '~/models/requests/login.request'
+import { WalletLoginRequest, AptosStandardSignature } from '~/models/requests/login.request'
 import { logAuthEvent } from '~/loggers/auth.logger'
 import { Aptos, Network, AptosConfig, Ed25519PublicKey, Ed25519Signature } from '@aptos-labs/ts-sdk'
 import { createDefaultScoreStructure, IScores } from '~/models/schemas/scores.schema'
-
-interface JWTSignature {
-  signature: {
-    jwtHeader: string
-    ephemeralPublicKey: {
-      publicKey: {
-        key: {
-          data: Record<string, number>
-        }
-      }
-      variant: number
-    }
-    ephemeralSignature: {
-      signature: {
-        data: {
-          data: Record<string, number>
-        }
-      }
-    }
-    expiryDateSecs: number
-  }
-  variant: number
-}
+import redis from '~/config/redis'
 
 interface NonceData {
   nonce: string
@@ -46,23 +24,12 @@ interface NonceData {
 }
 
 class AuthService {
-  private nonceMap = new Map<string, NonceData>()
   private readonly NONCE_EXPIRY = 5 * 60 * 1000 // 5 minutes in milliseconds
   private readonly aptosClient: Aptos
 
   constructor() {
-    setInterval(() => this.cleanupExpiredNonces(), 60 * 1000)
     const config = new AptosConfig({ network: Network.MAINNET })
     this.aptosClient = new Aptos(config)
-  }
-
-  private cleanupExpiredNonces() {
-    const now = Date.now()
-    for (const [address, data] of this.nonceMap.entries()) {
-      if (now - data.timestamp > this.NONCE_EXPIRY) {
-        this.nonceMap.delete(address)
-      }
-    }
   }
 
   public async revokeToken(token: string, type: TokenType): Promise<void> {
@@ -229,61 +196,12 @@ class AuthService {
     const normalizedAddress = address.toLowerCase()
     const timestamp = Date.now()
 
-    this.nonceMap.set(normalizedAddress, {
-      nonce,
-      timestamp
+    await redis.set(`nonce:${normalizedAddress}`, JSON.stringify({ nonce, timestamp }), {
+      EX: Math.floor(this.NONCE_EXPIRY / 1000)
     })
 
     const message = this.generateSignMessage(nonce, address)
     return { nonce, message }
-  }
-
-  private async verifyAptosSignature(address: string, signature: AptosSignature): Promise<boolean> {
-    try {
-      logger.info('Starting signature verification', 'AuthService.verifyAptosSignature', '', {
-        address,
-        publicKey: signature.publicKey,
-        signatureLength: signature.signature.length,
-        message: signature.message,
-        fullMessage: signature.fullMessage
-      })
-
-      const pubKey = new Ed25519PublicKey(signature.publicKey)
-
-      const signatureObj = new Ed25519Signature(signature.signature)
-
-      const messageBytes = new TextEncoder().encode(signature.fullMessage)
-
-      logger.info('Verifying signature', 'AuthService.verifyAptosSignature', '', {
-        messageBytes: Array.from(messageBytes),
-        signatureHex: signature.signature,
-        fullMessage: signature.fullMessage
-      })
-
-      const isValid = pubKey.verifySignature({
-        message: messageBytes,
-        signature: signatureObj
-      })
-
-      if (!isValid) {
-        logger.error('Signature verification failed', 'AuthService.verifyAptosSignature', '', {
-          message: signature.message,
-          fullMessage: signature.fullMessage,
-          signatureHex: signature.signature,
-          publicKey: signature.publicKey
-        })
-        return false
-      }
-
-      logger.info('Signature verified successfully', 'AuthService.verifyAptosSignature')
-      return true
-    } catch (error) {
-      logger.error('Error verifying Aptos signature', 'AuthService.verifyAptosSignature', '', {
-        error,
-        signature: JSON.stringify(signature, null, 2)
-      })
-      return false
-    }
   }
 
   private async verifyJWTSignature(signature: JWTSignature, message: string): Promise<boolean> {
@@ -324,28 +242,46 @@ class AuthService {
 
   private async verifySignature(
     address: string,
-    signature: string | Omit<AptosSignature, 'nonce'> | JWTSignature,
-    message: string
+    signature: AptosStandardSignature | JWTSignature,
+    message: string,
+    publicKey?: string
   ): Promise<boolean> {
     try {
-      if (typeof signature === 'object' && 'signature' in signature && signature.signature?.jwtHeader) {
+      // JWT Signature for social/passkey logins
+      if (typeof signature === 'object' && 'variant' in signature && signature.variant === 3) {
         return this.verifyJWTSignature(signature as JWTSignature, message)
       }
 
-      if (typeof signature === 'object' && 'prefix' in signature && signature.prefix === 'APTOS') {
-        return this.verifyAptosSignature(address, { ...signature, nonce: JSON.parse(message).nonce })
+      // Standard Aptos wallet signature
+      if (publicKey && typeof signature === 'object' && 'data' in signature) {
+        const standardSignature = signature as AptosStandardSignature
+        const signatureBytes = Object.values(standardSignature.data.data)
+        if (!signatureBytes.length) return false
+
+        const pubKey = new Ed25519PublicKey(publicKey)
+        const sig = new Ed25519Signature(new Uint8Array(signatureBytes))
+
+        const parsedMessage = JSON.parse(message)
+        const fullMessage = `APTOS\nmessage: ${message}\nnonce: ${parsedMessage.nonce}`
+        const messageBytes = new TextEncoder().encode(fullMessage)
+
+        return pubKey.verifySignature({
+          message: messageBytes,
+          signature: sig
+        })
       }
 
+      // Fallback for EVM or other string-based signatures if needed
       if (typeof signature === 'string') {
         const signerAddress = ethers.verifyMessage(message, signature)
-        const isValid = signerAddress.toLowerCase() === address.toLowerCase()
-        return isValid
+        return signerAddress.toLowerCase() === address.toLowerCase()
       }
 
       return false
     } catch (error) {
       logger.error('Error verifying signature', 'AuthService.verifySignature', '', {
-        error
+        error,
+        signature: JSON.stringify(signature)
       })
       return false
     }
@@ -372,7 +308,7 @@ class AuthService {
   }
 
   async handleWalletLogin(data: WalletLoginRequest, req: Request): Promise<WalletLoginResponse> {
-    const { address, signature, message } = data
+    const { address, signature, message, publicKey } = data
     const normalizedAddress = address.toLowerCase()
 
     try {
@@ -381,11 +317,16 @@ class AuthService {
         const parsedMessage = JSON.parse(message)
         const now = Date.now()
 
-        // Validate nonce
-        const storedNonceData = this.nonceMap.get(normalizedAddress)
+        // Lấy nonce từ Redis
+        const storedNonceStr = await redis.get(`nonce:${normalizedAddress}`)
+        let storedNonceData: NonceData | null = null
+        if (storedNonceStr) {
+          storedNonceData = JSON.parse(storedNonceStr)
+          console.log('storedNonceData', storedNonceData)
+        }
         if (!storedNonceData || storedNonceData.nonce !== parsedMessage.nonce) {
           throw new ErrorWithStatus({
-            message: AUTH_MESSAGES.INVALID_SIGNATURE,
+            message: AUTH_MESSAGES.NONCE_NOT_FOUND,
             status: httpStatusCode.UNAUTHORIZED
           })
         }
@@ -402,13 +343,13 @@ class AuthService {
         const expectedDomain = new URL(envConfig.clientUrl).hostname
         if (parsedMessage.domain !== expectedDomain) {
           throw new ErrorWithStatus({
-            message: AUTH_MESSAGES.INVALID_SIGNATURE,
+            message: AUTH_MESSAGES.INVALID_DOMAIN,
             status: httpStatusCode.UNAUTHORIZED
           })
         }
 
         // Verify signature
-        const isValidSignature = await this.verifySignature(address, signature, message)
+        const isValidSignature = await this.verifySignature(address, signature, message, publicKey)
         if (!isValidSignature) {
           throw new ErrorWithStatus({
             message: AUTH_MESSAGES.INVALID_SIGNATURE,
@@ -416,8 +357,8 @@ class AuthService {
           })
         }
 
-        // Clean up nonce after successful validation
-        this.nonceMap.delete(normalizedAddress)
+        // Xóa nonce sau khi xác thực thành công
+        await redis.del(`nonce:${normalizedAddress}`)
 
         const { issuer, score } = await this.findOrCreateIssuer(normalizedAddress)
 
@@ -465,7 +406,7 @@ class AuthService {
           throw error
         }
         throw new ErrorWithStatus({
-          message: AUTH_MESSAGES.INVALID_SIGNATURE,
+          message: 'hello',
           status: httpStatusCode.UNAUTHORIZED
         })
       }
