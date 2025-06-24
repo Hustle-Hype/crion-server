@@ -66,19 +66,27 @@ export const DETAILED_SCORE_WEIGHTS = {
   }
 }
 
+export const GITHUB_COMMIT_SCORES = {
+  DAYS_30: {
+    threshold: 30,
+    points: 1.9
+  },
+  DAYS_60: {
+    threshold: 60,
+    points: 1.9
+  },
+  DAYS_120: {
+    threshold: 120,
+    points: 2.3
+  }
+} as const
+
 export const SOCIAL_SCORES = {
   [ProviderType.GOOGLE]: 1,
   [ProviderType.X]: 1.5,
+  [ProviderType.GITHUB]: 0, // Base score for GitHub, actual score will be calculated based on commit days
   [ProviderType.LINKEDIN]: 2,
   [ProviderType.TELEGRAM]: 1
-} as const
-
-export const SCORE_WEIGHTS = {
-  staking: 0.3,
-  walletBehavior: 0.2,
-  launchHistory: 0.2,
-  social: 0.2,
-  kyc: 0.1
 } as const
 
 export const SCORE_TIERS = {

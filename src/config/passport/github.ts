@@ -19,12 +19,6 @@ export const githubStrategy = new GitHubStrategy(
   },
   async (req: Request, accessToken: string, refreshToken: string, profile: Profile, done: any) => {
     try {
-      console.log('Github strategy executing', {
-        hasProfile: !!profile,
-        profileId: profile?.id,
-        state: req.query.state
-      })
-
       // Get state from query parameter
       const stateString = req.query.state as string
       if (!stateString) {

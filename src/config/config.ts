@@ -92,5 +92,6 @@ export const envConfig = {
   githubClientId: process.env.GITHUB_CLIENT_ID as string,
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET as string,
   githubCallbackURLDev: process.env.GITHUB_CALLBACK_URL_DEV as string,
-  githubCallbackURLProd: process.env.GITHUB_CALLBACK_URL_PROD as string
+  githubCallbackURLProd: process.env.GITHUB_CALLBACK_URL_PROD as string,
+  githubAccessToken: process.env.GITHUB_ACCESS_TOKEN as string
 } as const

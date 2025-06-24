@@ -109,8 +109,7 @@ class IssuerService {
         username: profile.username,
         displayName: profile.displayName,
         profileUrl: profile.profileUrl,
-        verifiedAt: new Date(),
-        score: 0 // Will be updated by scores service
+        verifiedAt: new Date()
       }
 
       await Promise.all([
