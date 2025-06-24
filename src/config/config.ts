@@ -93,5 +93,11 @@ export const envConfig = {
   githubClientSecret: process.env.GITHUB_CLIENT_SECRET as string,
   githubCallbackURLDev: process.env.GITHUB_CALLBACK_URL_DEV as string,
   githubCallbackURLProd: process.env.GITHUB_CALLBACK_URL_PROD as string,
-  githubAccessToken: process.env.GITHUB_ACCESS_TOKEN as string
+  githubAccessToken: process.env.GITHUB_ACCESS_TOKEN as string,
+
+  // Redis
+  redisUsername: process.env.REDIS_USERNAME as string,
+  redisPassword: process.env.REDIS_PASSWORD as string,
+  redisHost: process.env.REDIS_HOST as string,
+  redisPort: process.env.REDIS_PORT as string
 } as const
