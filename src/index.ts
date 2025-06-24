@@ -15,6 +15,9 @@ import databaseServices from './services/database.services'
 
 // Khởi tạo ứng dụng Express
 const app: Application = express()
+
+app.set('trust proxy', 1)
+
 const server = http.createServer(app)
 
 // init middleware
