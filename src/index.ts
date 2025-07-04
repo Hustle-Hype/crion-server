@@ -38,7 +38,12 @@ app.use(compression())
 app.use(morgan('dev'))
 
 // Get allowed origins from environment
-const allowedOrigins = ['http://localhost:3000', 'https://basic-login-rose.vercel.app']
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'https://basic-login-rose.vercel.app'
+]
 if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL)
 }
