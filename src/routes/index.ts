@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import authRouter from '~/routes/auth.routes'
 import issuerRouter from '~/routes/issuer.routes'
-import accountRouter from '~/routes/account.routes'
 
 const rootRouterV1 = Router()
 rootRouterV1.get('/healthz', (req, res) => {
@@ -16,10 +15,6 @@ const defaultRoutes = [
   {
     path: '/issuer',
     route: issuerRouter
-  },
-  {
-    path: '/account',
-    route: accountRouter
   }
   // {
   //   path: '/admin',
