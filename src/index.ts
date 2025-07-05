@@ -44,6 +44,7 @@ const allowedOrigins = [
   'http://localhost:3002',
   'https://basic-login-rose.vercel.app'
 ]
+
 if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL)
 }
