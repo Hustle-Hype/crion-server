@@ -8,6 +8,7 @@ import { logger } from '~/loggers/my-logger.log'
 import scoresService from './scores.service'
 import { createSocialLink, ISocialLink } from '~/models/schemas/socialLink.schema'
 import { IIssuer } from '~/models/schemas/issuer.schema'
+import { envConfig } from '~/config/config'
 
 interface SocialProfile {
   id: string
@@ -170,31 +171,49 @@ class IssuerService {
     })
   }
 
-  async getProfile(issuerId: ObjectId): Promise<Partial<IIssuer> | null> {
+  async getProfile(issuerId: ObjectId): Promise<any> {
     try {
-      const issuer = await databaseServices.issuers.findOne(
-        { _id: issuerId },
-        {
-          projection: {
-            behaviorFlags: 0,
-            status: 0,
-            createdAt: 0,
-            updatedAt: 0,
-            lastLoginAt: 0,
-            lastLoginIP: 0,
-            lastLoginUserAgent: 0
+      const [result] = await databaseServices.issuers
+        .aggregate([
+          { $match: { _id: issuerId } },
+          {
+            $project: {
+              behaviorFlags: 0,
+              status: 0,
+              createdAt: 0,
+              updatedAt: 0,
+              lastLoginAt: 0,
+              lastLoginIP: 0,
+              lastLoginUserAgent: 0
+            }
+          },
+          {
+            $lookup: {
+              from: envConfig.dbScoresCollection,
+              localField: '_id',
+              foreignField: 'issuerId',
+              as: 'score'
+            }
+          },
+          {
+            $unwind: {
+              path: '$score',
+              preserveNullAndEmptyArrays: true
+            }
           }
-        }
-      )
-      if (!issuer) {
+        ])
+        .toArray()
+
+      if (!result) {
         throw new ErrorWithStatus({
           message: AUTH_MESSAGES.USER_NOT_FOUND,
           status: httpStatusCode.NOT_FOUND
         })
       }
-      return issuer
+
+      return result
     } catch (error) {
-      logger.error('Error getting issuer profile', 'IssuerService.getProfile', '', {
+      logger.error('Error getting issuer profile with score', 'IssuerService.getProfile', '', {
         issuerId: issuerId.toString(),
         error
       })
