@@ -509,18 +509,36 @@ class IssuerController {
   getScoreByPrimaryWallet = async (req: Request, res: Response, next: NextFunction) => {
     const { primaryWallet } = req.params
 
-    if (!primaryWallet) {
-      throw new ErrorWithStatus({
-        message: 'Primary wallet address is required',
-        status: httpStatusCode.BAD_REQUEST
-      })
-    }
-
     const scoreData = await issuerService.getScoreByPrimaryWallet(primaryWallet)
+
     new OK({
       message: 'Get score by primary wallet successfully',
       data: scoreData
     }).send(res)
+  }
+
+  uploadImage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Check if file was uploaded successfully by middleware
+      if (!req.fileUrl && !req.body.imageUrl) {
+        throw new ErrorWithStatus({
+          message: 'No image file provided or upload failed',
+          status: httpStatusCode.BAD_REQUEST
+        })
+      }
+
+      // Get the uploaded image URL from middleware
+      const imageUrl = req.fileUrl || req.body.imageUrl
+
+      new OK({
+        message: 'Image uploaded successfully',
+        data: {
+          url: imageUrl
+        }
+      }).send(res)
+    } catch (error) {
+      next(error)
+    }
   }
 }
 

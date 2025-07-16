@@ -4,6 +4,8 @@ import { wrapRequestHandler } from '~/utils/wrapHandler'
 import { accessTokenValidation, checkSocialLinkStatus } from '~/middlewares/auth.middlewares'
 import { validateSchema } from '~/middlewares/validation.middlewares'
 import { UpdateProfileRequestSchema, GetScoreByPrimaryWalletRequestSchema } from '~/models/requests/issuer.request'
+import { uploadSingle } from '~/config/upload/multer'
+import { imageValidationMiddleware, requireImageUpload, uploadMiddleware } from '~/middlewares/upload.middlware'
 
 const issuerRouter = Router()
 
@@ -56,6 +58,16 @@ issuerRouter.get(
   '/score/:primaryWallet',
   validateSchema(GetScoreByPrimaryWalletRequestSchema),
   wrapRequestHandler(issuerController.getScoreByPrimaryWallet)
+)
+
+// Upload endpoints
+issuerRouter.post(
+  '/upload/image',
+  uploadSingle('image'),
+  requireImageUpload,
+  uploadMiddleware,
+  imageValidationMiddleware,
+  wrapRequestHandler(issuerController.uploadImage)
 )
 
 export default issuerRouter
