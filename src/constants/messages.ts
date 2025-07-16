@@ -1,5 +1,6 @@
 export const USER_MESSAGES = {
-  VALIDATION_ERROR: 'Validation error'
+  VALIDATION_ERROR: 'Validation error',
+  INVALID_AVATAR_FILE_TYPE: 'Invalid avatar file type. Only image files are allowed.'
 } as const
 
 export const AUTH_MESSAGES = {
