@@ -22,3 +22,11 @@ export const UpdateProfileRequestSchema = z.object({
 })
 
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>['body']
+
+export const GetScoreByPrimaryWalletRequestSchema = z.object({
+  params: z.object({
+    primaryWallet: z.string().min(1, 'Primary wallet address is required')
+  })
+})
+
+export type GetScoreByPrimaryWalletRequest = z.infer<typeof GetScoreByPrimaryWalletRequestSchema>['params']

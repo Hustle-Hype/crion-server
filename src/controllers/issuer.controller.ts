@@ -505,6 +505,23 @@ class IssuerController {
       next(error)
     }
   }
+
+  getScoreByPrimaryWallet = async (req: Request, res: Response, next: NextFunction) => {
+    const { primaryWallet } = req.params
+
+    if (!primaryWallet) {
+      throw new ErrorWithStatus({
+        message: 'Primary wallet address is required',
+        status: httpStatusCode.BAD_REQUEST
+      })
+    }
+
+    const scoreData = await issuerService.getScoreByPrimaryWallet(primaryWallet)
+    new OK({
+      message: 'Get score by primary wallet successfully',
+      data: scoreData
+    }).send(res)
+  }
 }
 
 export default new IssuerController()

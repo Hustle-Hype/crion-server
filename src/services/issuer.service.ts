@@ -289,6 +289,60 @@ class IssuerService {
       throw error
     }
   }
+
+  async getScoreByPrimaryWallet(primaryWallet: string) {
+    try {
+      // Find issuer by primary wallet
+      const issuer = await databaseServices.issuers.findOne({ primaryWallet })
+
+      if (!issuer) {
+        throw new ErrorWithStatus({
+          message: 'Issuer not found with this primary wallet',
+          status: httpStatusCode.NOT_FOUND
+        })
+      }
+
+      // Get current score for this issuer
+      const score = await databaseServices.scores.findOne({ issuerId: issuer._id })
+
+      if (!score) {
+        // If no score found, return default score structure
+        return {
+          issuerId: issuer._id,
+          primaryWallet: issuer.primaryWallet,
+          name: issuer.name,
+          avatar: issuer.avatar,
+          scores: {
+            staking: 0,
+            walletBehavior: 0,
+            launchHistory: 0,
+            social: 0,
+            kyc: 0
+          },
+          totalScore: 0,
+          tier: 'new_issuer' as const,
+          updatedAt: new Date()
+        }
+      }
+
+      return {
+        issuerId: issuer._id,
+        primaryWallet: issuer.primaryWallet,
+        name: issuer.name,
+        avatar: issuer.avatar,
+        scores: score.scores,
+        totalScore: score.totalScore,
+        tier: score.tier,
+        updatedAt: score.updatedAt
+      }
+    } catch (error) {
+      logger.error('Error getting score by primary wallet', 'IssuerService.getScoreByPrimaryWallet', '', {
+        primaryWallet,
+        error
+      })
+      throw error
+    }
+  }
 }
 
 export default new IssuerService()

@@ -3,7 +3,7 @@ import issuerController from '~/controllers/issuer.controller'
 import { wrapRequestHandler } from '~/utils/wrapHandler'
 import { accessTokenValidation, checkSocialLinkStatus } from '~/middlewares/auth.middlewares'
 import { validateSchema } from '~/middlewares/validation.middlewares'
-import { UpdateProfileRequestSchema } from '~/models/requests/issuer.request'
+import { UpdateProfileRequestSchema, GetScoreByPrimaryWalletRequestSchema } from '~/models/requests/issuer.request'
 
 const issuerRouter = Router()
 
@@ -49,6 +49,13 @@ issuerRouter.post(
   '/me/unlink/:provider',
   accessTokenValidation,
   wrapRequestHandler(issuerController.handleSocialUnlink)
+)
+
+// Public endpoints
+issuerRouter.get(
+  '/score/:primaryWallet',
+  validateSchema(GetScoreByPrimaryWalletRequestSchema),
+  wrapRequestHandler(issuerController.getScoreByPrimaryWallet)
 )
 
 export default issuerRouter
