@@ -16,10 +16,6 @@ const defaultRoutes = [
     path: '/issuer',
     route: issuerRouter
   }
-  // {
-  //   path: '/admin',
-  //   route: adminRoute
-  // }
 ]
 
 defaultRoutes.forEach((route) => {
