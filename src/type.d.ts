@@ -2,7 +2,6 @@ import { TokenPayload } from '~/models/requests/token.request'
 import { IIssuer } from './models/schemas/issuer.schema'
 import { IAccount } from './models/schemas/account.schema'
 import { ObjectId } from 'mongodb'
-import { Request } from 'express'
 import { TokenType } from './models/schemas/token.schema'
 
 declare global {
@@ -31,9 +30,11 @@ declare global {
       decoded_refresh_token?: string
       decoded_email_verify_token?: string
       decoded_forgot_password_token?: string
-      user?: any
+      user?: any // eslint-disable-line @typescript-eslint/no-explicit-any
       token_type?: TokenType
       token?: string
+      fileUrl?: string
+      fileUrls?: string[]
     }
   }
 }
