@@ -47,16 +47,6 @@ class AuthController {
       message: AUTH_MESSAGES.ALL_TOKENS_REVOKED_SUCCESS
     }).send(res)
   }
-
-  // async handleGoogleCallback(req: Request, res: Response) {
-  //   const result = await authService.handleGoogleCallback(req)
-  //   res.redirect(`${envConfig.clientUrl}/auth/callback?token=${result.accessToken}`)
-  // }
-
-  // async handleTwitterCallback(req: Request, res: Response) {
-  //   const result = await authService.handleTwitterCallback(req)
-  //   res.redirect(`${envConfig.clientUrl}/auth/callback?token=${result.accessToken}`)
-  // }
 }
 
 export default new AuthController()
