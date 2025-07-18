@@ -2,7 +2,7 @@ import { logger } from '~/loggers/my-logger.log'
 
 class KeepAliveService {
   private intervalId: NodeJS.Timeout | null = null
-  private readonly intervalTime = 1 * 60 * 1000 // 10 minutes (before 15-minute sleep)
+  private readonly intervalTime = process.env.INTERVAL_TIME ? parseInt(process.env.INTERVAL_TIME, 10) : 10 * 60 * 1000
   private readonly baseUrl: string
 
   constructor() {
