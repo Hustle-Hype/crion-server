@@ -12,6 +12,8 @@ import { logger } from './loggers/my-logger.log'
 import { envConfig } from './config/config'
 import passport from './config/passport'
 import databaseServices from './services/database.services'
+import keepAliveService from './services/keepalive.service'
+import warmupService from './services/warmup.service'
 
 // Khởi tạo ứng dụng Express
 const app: Application = express()
@@ -94,6 +96,16 @@ app.use(passport.initialize())
 // Kết nối database
 databaseServices.connect()
 
+// Health check endpoint (should be before other routes)
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
+  })
+})
+
 // init route
 app.use('/api/v1', rootRouterV1)
 
@@ -112,4 +124,20 @@ app.use(defaultErrorHandler)
 server.listen(envConfig.port, async () => {
   logger.info(`Server is running on port ${envConfig.port}`)
   console.log(`Server is Fire at http://localhost:${envConfig.port}`)
+
+  await warmupService.warmup()
+
+  keepAliveService.start()
+})
+
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down gracefully')
+  keepAliveService.stop()
+  process.exit(0)
+})
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received, shutting down gracefully')
+  keepAliveService.stop()
+  process.exit(0)
 })
